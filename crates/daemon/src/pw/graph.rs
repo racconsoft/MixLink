@@ -221,21 +221,29 @@ impl Graph {
     }
 }
 
-/// Pairs output with input ports: same channel, else a single (mono) output
-/// feeds every input, else by position.
+/// Pairs output with input ports. Priority: channel-name matches only (if any
+/// input matches); else a single input (mono sink) gets every output; else a
+/// single output (mono source) feeds every input; else by position.
 pub fn pair_ports(outs: &[&PortInfo], ins: &[&PortInfo]) -> Vec<(u32, u32)> {
     let mut outs: Vec<&PortInfo> = outs.to_vec();
     outs.sort_by(|a, b| a.name.cmp(&b.name));
-    ins.iter()
-        .enumerate()
-        .filter_map(|(index, input)| {
-            let output = outs
-                .iter()
-                .find(|o| o.channel == input.channel)
-                .or_else(|| if outs.len() == 1 { outs.first() } else { outs.get(index) })?;
-            Some((output.id, input.id))
-        })
-        .collect()
+    let mut ins: Vec<&PortInfo> = ins.to_vec();
+    ins.sort_by(|a, b| a.name.cmp(&b.name));
+
+    let channel_matches: Vec<(u32, u32)> = ins
+        .iter()
+        .filter_map(|input| outs.iter().find(|o| o.channel == input.channel).map(|output| (output.id, input.id)))
+        .collect();
+    if !channel_matches.is_empty() {
+        return channel_matches;
+    }
+    if let [input] = ins[..] {
+        return outs.iter().map(|output| (output.id, input.id)).collect();
+    }
+    if let [output] = outs[..] {
+        return ins.iter().map(|input| (output.id, input.id)).collect();
+    }
+    ins.iter().enumerate().filter_map(|(index, input)| outs.get(index).map(|output| (output.id, input.id))).collect()
 }
 
 #[cfg(test)]
@@ -349,6 +357,32 @@ mod tests {
         let a = port(6, 1, "out_AUX0", Direction::Out, false);
         let b = port(7, 1, "out_AUX1", Direction::Out, false);
         assert_eq!(pair_ports(&[&a, &b], &[&in_fl, &in_fr]), vec![(6, 3), (7, 4)]);
+    }
+
+    #[test]
+    fn pair_ports_surround_sink_only_links_matching_channels() {
+        let out_fl = port(1, 1, "out_FL", Direction::Out, false);
+        let out_fr = port(2, 1, "out_FR", Direction::Out, false);
+        let in_fc = port(10, 2, "playback_FC", Direction::In, false);
+        let in_fl = port(11, 2, "playback_FL", Direction::In, false);
+        let in_fr = port(12, 2, "playback_FR", Direction::In, false);
+        let in_lfe = port(13, 2, "playback_LFE", Direction::In, false);
+        let in_rl = port(14, 2, "playback_RL", Direction::In, false);
+        let in_rr = port(15, 2, "playback_RR", Direction::In, false);
+        let mut links =
+            pair_ports(&[&out_fl, &out_fr], &[&in_fc, &in_fl, &in_fr, &in_lfe, &in_rl, &in_rr]);
+        links.sort();
+        assert_eq!(links, vec![(1, 11), (2, 12)]);
+    }
+
+    #[test]
+    fn pair_ports_single_mono_input_gets_every_output() {
+        let out_fl = port(1, 1, "out_FL", Direction::Out, false);
+        let out_fr = port(2, 1, "out_FR", Direction::Out, false);
+        let in_mono = port(20, 2, "playback_MONO", Direction::In, false);
+        let mut links = pair_ports(&[&out_fl, &out_fr], &[&in_mono]);
+        links.sort();
+        assert_eq!(links, vec![(1, 20), (2, 20)]);
     }
 
     #[test]
