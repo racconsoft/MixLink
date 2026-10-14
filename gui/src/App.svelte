@@ -1,8 +1,14 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { Settings } from "@lucide/svelte";
-  import { connected, daemonState, initBackend } from "./lib/stores";
+  import { connected, daemonState, initBackend, meters } from "./lib/stores";
   import { t } from "./lib/i18n";
+  import type { Channel } from "./lib/types";
+  import ChannelStrip from "./components/ChannelStrip.svelte";
+  import AddChannelTile from "./components/AddChannelTile.svelte";
+  import ChannelDialog from "./components/ChannelDialog.svelte";
+
+  let dialog = $state<null | { kind: "create" } | { kind: "edit"; channel: Channel }>(null);
 
   onMount(() => initBackend());
 </script>
@@ -18,9 +24,18 @@
   <main>
     <h2 class="section">{t("channels.title")}</h2>
     <div class="strips" data-testid="channels">
-      {#each $daemonState?.config.channels ?? [] as channel (channel.id)}
-        <div class="surface placeholder" data-testid="strip-{channel.id}">{channel.name}</div>
-      {/each}
+      {#if $daemonState}
+        {#each $daemonState.config.channels as channel (channel.id)}
+          <ChannelStrip
+            {channel}
+            fallback={channel.id === $daemonState.config.fallback_channel}
+            peaks={$meters?.channels[channel.id] ?? [0, 0]}
+            allApps={$daemonState.apps}
+            onedit={(c) => (dialog = { kind: "edit", channel: c })}
+          />
+        {/each}
+        <AddChannelTile oncreate={() => (dialog = { kind: "create" })} />
+      {/if}
     </div>
 
     <h2 class="section">{t("outputs.title")}</h2>
@@ -29,6 +44,7 @@
       <div class="surface row">{t("outputs.stream")}</div>
     </div>
   </main>
+  {#if dialog}<ChannelDialog mode={dialog} onclose={() => (dialog = null)} />{/if}
 </div>
 
 <style>
@@ -44,7 +60,6 @@
   .section { margin: 12px 12px 6px; font-size: 10px; font-weight: 600; letter-spacing: 0.08em;
     text-transform: uppercase; color: var(--text-dim); }
   .strips { display: flex; gap: 8px; padding: 0 12px 6px; overflow-x: auto; align-items: stretch; }
-  .placeholder { width: 108px; height: 300px; padding: 8px; flex: none; }
   .outputs { display: flex; flex-direction: column; gap: 6px; padding: 0 12px; }
   .row { padding: 8px 10px; }
 </style>

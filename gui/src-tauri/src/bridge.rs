@@ -80,6 +80,21 @@ pub async fn start_service() -> Result<(), String> {
 }
 
 #[tauri::command]
+pub async fn app_icon(
+    icons: tauri::State<'_, std::sync::Arc<mixlink_desktop::icons::IconCache>>,
+    app: String,
+    icon_name: Option<String>,
+) -> Result<Option<String>, ()> {
+    let icons = icons.inner().clone();
+    Ok(
+        tauri::async_runtime::spawn_blocking(move || icons.get(&app, icon_name.as_deref()))
+            .await
+            .ok()
+            .flatten(),
+    )
+}
+
+#[tauri::command]
 pub fn log_frontend(level: String, message: String) {
     match level.as_str() {
         "error" => tracing::error!(target: "ui", "{message}"),

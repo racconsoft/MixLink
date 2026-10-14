@@ -29,6 +29,10 @@ fn main() {
             ));
             app.manage(link);
             app.manage(sink);
+            let theme =
+                mixlink_desktop::icons::kde_icon_theme(&mixlink_desktop::autostart::config_home())
+                    .unwrap_or_else(|| "breeze-dark".into());
+            app.manage(Arc::new(mixlink_desktop::icons::IconCache::new(theme)));
             if let Some(window) = app.get_webview_window("main") {
                 window.show()?;
             }
@@ -38,7 +42,8 @@ fn main() {
             bridge::send,
             bridge::snapshot,
             bridge::start_service,
-            bridge::log_frontend
+            bridge::log_frontend,
+            bridge::app_icon
         ])
         .run(tauri::generate_context!())
         .expect("running the MixLink GUI");
