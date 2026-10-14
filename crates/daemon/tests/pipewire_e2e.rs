@@ -76,6 +76,15 @@ fn has_link(output: &str, input: &str) -> bool {
     false
 }
 
+/// The `default` metadata entries for one subject (node id).
+fn stream_metadata(node_id: u32) -> String {
+    let out = std::process::Command::new("pw-metadata")
+        .arg(node_id.to_string())
+        .output()
+        .expect("pw-metadata");
+    String::from_utf8_lossy(&out.stdout).into_owned()
+}
+
 fn pw_nodes() -> String {
     let out = std::process::Command::new("pw-cli")
         .args(["ls", "Node"])
@@ -90,7 +99,9 @@ async fn routes_moves_and_mixes_through_real_pipewire() {
     let dir = tempfile::tempdir().unwrap();
     let tone = dir.path().join("tone.wav");
     let rec = dir.path().join("rec.wav");
+    let silence = dir.path().join("silence.wav");
     support::write_tone_wav(&tone, 0.5, 3.0);
+    support::write_tone_wav(&silence, 0.0, 10.0);
 
     let (tx, mut rx) = mpsc::unbounded_channel();
     let backend = PipeWireBackend::spawn(tx);
@@ -115,11 +126,22 @@ async fn routes_moves_and_mixes_through_real_pipewire() {
     backend.send(BackendCommand::SetTargets(targets));
     tokio::time::sleep(Duration::from_millis(500)).await;
 
+    // A silent stream for the clear-target check below.
+    let quiet = support::start_play(&silence, "wavelink.channel.e2e-a");
+    let quiet_pid = quiet.id();
+    let event = wait_for(&mut rx, "silent pw-play on channel a", |e| {
+        matches!(e, BackendEvent::StreamUpdated(s) if s.app == "pw-play" && s.target.as_deref() == Some("wavelink.channel.e2e-a"))
+    })
+    .await;
+    let BackendEvent::StreamUpdated(silent) = event else {
+        unreachable!()
+    };
+
     let recorder = support::start_record(&rec, "wavelink.stream_mix");
     let mut player = support::start_play(&tone, "wavelink.channel.e2e-b");
-    let _reaper = Reaper(vec![recorder.id(), player.id()]);
+    let _reaper = Reaper(vec![quiet_pid, recorder.id(), player.id()]);
     let event = wait_for(&mut rx, "pw-play on channel b", |e| {
-        matches!(e, BackendEvent::StreamUpdated(s) if s.app == "pw-play" && s.target.as_deref() == Some("wavelink.channel.e2e-b"))
+        matches!(e, BackendEvent::StreamUpdated(s) if s.app == "pw-play" && s.node_id != silent.node_id && s.target.as_deref() == Some("wavelink.channel.e2e-b"))
     })
     .await;
     let BackendEvent::StreamUpdated(stream) = event else {
@@ -147,6 +169,31 @@ async fn routes_moves_and_mixes_through_real_pipewire() {
     )
     .await;
     assert!(matches!(meters, BackendEvent::Meters(_)));
+
+    // A move with target None clears target.object again (silent stream, so nothing
+    // becomes audible wherever it ends up).
+    backend.send(BackendCommand::MoveStream {
+        node_id: silent.node_id,
+        target: Some("wavelink.channel.e2e-b".into()),
+    });
+    wait_for(&mut rx, "silent stream on channel b", |e| {
+        matches!(e, BackendEvent::StreamUpdated(s) if s.node_id == silent.node_id && s.target.as_deref() == Some("wavelink.channel.e2e-b"))
+    })
+    .await;
+    assert!(stream_metadata(silent.node_id).contains("target.object"));
+    backend.send(BackendCommand::MoveStream {
+        node_id: silent.node_id,
+        target: None,
+    });
+    wait_for(&mut rx, "silent stream leaving channel b", |e| {
+        matches!(e, BackendEvent::StreamUpdated(s) if s.node_id == silent.node_id && s.target.is_some() && s.target.as_deref() != Some("wavelink.channel.e2e-b"))
+    })
+    .await;
+    let metadata = stream_metadata(silent.node_id);
+    assert!(
+        !metadata.contains("target.object"),
+        "target.object not cleared:\n{metadata}"
+    );
 
     // A link of ours destroyed externally gets recreated.
     support::pw_unlink("wavelink.mixer:stream_FL", "wavelink.stream_mix:input_FL");
@@ -184,6 +231,7 @@ async fn routes_moves_and_mixes_through_real_pipewire() {
     );
 
     player.wait().unwrap();
+    support::stop_record(quiet);
     support::stop_record(recorder);
     let peak = support::wav_peak(&rec);
     assert!((peak - 0.25).abs() < 0.03, "stream mix peak {peak}");

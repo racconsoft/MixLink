@@ -4,7 +4,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use pipewire as pw;
 use pw::properties::properties;
@@ -32,6 +32,9 @@ pub enum SessionEnd {
 
 const DEFAULT_SINK_KEY: &str = "default.configured.audio.sink";
 const METER_INTERVAL: Duration = Duration::from_millis(33);
+/// How long startup waits for WirePlumber to publish the `default` metadata.
+const METADATA_TIMEOUT: Duration = Duration::from_secs(3);
+const METADATA_POLL: Duration = Duration::from_millis(50);
 /// Linux `EPIPE`: the only core error that means the connection is gone.
 const EPIPE: i32 = 32;
 
@@ -58,11 +61,15 @@ struct Session {
     channels: HashMap<ChannelId, ChannelEntry>,
     monitor_output: Option<String>,
     links: HashMap<(u32, u32), pw::link::Link>,
+    /// Global id of the bound `default` metadata.
+    metadata_id: Option<u32>,
     metadata: Option<pw::metadata::Metadata>,
     metadata_listener: Option<pw::metadata::MetadataListener>,
     configured_default_sink: Option<String>,
+    /// Last SetDefaultSink request; (re)applied whenever the metadata gets bound.
+    desired_default_sink: Option<Option<String>>,
     streams: HashMap<u32, StreamEntry>,
-    pending_moves: HashMap<u32, String>,
+    pending_moves: PendingMoves,
     last_moves: HashMap<u32, String>,
     shutdown_seq: Option<AsyncSeq>,
     end: Option<SessionEnd>,
@@ -96,11 +103,13 @@ pub fn run_session(
         channels: HashMap::new(),
         monitor_output: None,
         links: HashMap::new(),
+        metadata_id: None,
         metadata: None,
         metadata_listener: None,
         configured_default_sink: None,
+        desired_default_sink: None,
         streams: HashMap::new(),
-        pending_moves: HashMap::new(),
+        pending_moves: PendingMoves::default(),
         last_moves: HashMap::new(),
         shutdown_seq: None,
         end: None,
@@ -154,16 +163,23 @@ pub fn run_session(
         })
         .register();
 
+    let ended = |session: &Rc<RefCell<Session>>| {
+        session
+            .borrow_mut()
+            .end
+            .take()
+            .unwrap_or(SessionEnd::Disconnected)
+    };
     // 1st roundtrip: all globals (metadata gets bound); 2nd: metadata property values.
     for _ in 0..2 {
         if !roundtrip(&mainloop, &core, &session) {
-            let end = session
-                .borrow_mut()
-                .end
-                .take()
-                .unwrap_or(SessionEnd::Disconnected);
-            return (commands, end);
+            return (commands, ended(&session));
         }
+    }
+    // Right after login (or a PipeWire restart) WirePlumber may not have published the
+    // `default` metadata yet; without it the previous default sink is unknown.
+    if !wait_for_metadata(&mainloop, &core, &session) {
+        return (commands, ended(&session));
     }
 
     let _mixer = match MixerNode::new(&core, MIXER_NODE, shared.clone()) {
@@ -247,6 +263,63 @@ fn roundtrip(
     true
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum StartupWait {
+    Bound,
+    Waiting,
+    TimedOut,
+}
+
+fn startup_wait(metadata_bound: bool, elapsed: Duration) -> StartupWait {
+    if metadata_bound {
+        StartupWait::Bound
+    } else if elapsed >= METADATA_TIMEOUT {
+        StartupWait::TimedOut
+    } else {
+        StartupWait::Waiting
+    }
+}
+
+/// Keeps the loop running until the `default` metadata is bound and its property
+/// values have arrived, or until `METADATA_TIMEOUT`. Returns false if the session
+/// ended meanwhile.
+fn wait_for_metadata(
+    mainloop: &pw::main_loop::MainLoopRc,
+    core: &pw::core::CoreRc,
+    session: &Rc<RefCell<Session>>,
+) -> bool {
+    let start = Instant::now();
+    if session.borrow().metadata.is_some() {
+        return true;
+    }
+    tracing::info!("waiting for WirePlumber's default metadata");
+    let timer = mainloop.loop_().add_timer({
+        let mainloop = mainloop.clone();
+        move |_| mainloop.quit()
+    });
+    let _ = timer.update_timer(Some(METADATA_POLL), Some(METADATA_POLL));
+    loop {
+        match startup_wait(session.borrow().metadata.is_some(), start.elapsed()) {
+            StartupWait::Bound => break,
+            StartupWait::TimedOut => {
+                tracing::warn!(
+                    "default metadata did not appear within {METADATA_TIMEOUT:?}; \
+                     the previous default sink is unknown"
+                );
+                return true;
+            }
+            StartupWait::Waiting => {}
+        }
+        mainloop.run();
+        if session.borrow().end.is_some() {
+            return false;
+        }
+    }
+    drop(timer);
+    // The bind went out just now; one more roundtrip delivers the property values.
+    roundtrip(mainloop, core, session)
+}
+
 /// Other core errors (e.g. -ENOENT for a destroy racing a server-side removal) are
 /// reported on PW_ID_CORE too; only a broken connection ends the session.
 fn ends_session(id: u32, res: i32) -> bool {
@@ -281,9 +354,8 @@ impl Session {
                         };
                         let _ = s.events.send(BackendEvent::DeviceAdded(device));
                     }
-                    let name = node.name.clone();
                     s.graph.add_node(node);
-                    s.flush_pending_moves(&name);
+                    s.flush_pending_moves();
                     s.reconcile();
                 }
                 if is_stream {
@@ -386,11 +458,23 @@ impl Session {
             })
             .register();
         let mut s = this.borrow_mut();
+        s.metadata_id = Some(global.id);
         s.metadata = Some(metadata);
         s.metadata_listener = Some(listener);
+        // Requests that arrived while no metadata was bound (late WirePlumber start,
+        // WirePlumber restart).
+        s.apply_default_sink();
+        s.flush_pending_moves();
     }
 
     fn on_global_remove(&mut self, id: u32) {
+        if self.metadata_id == Some(id) {
+            // WirePlumber went away; defer requests until it publishes the metadata again.
+            self.metadata_id = None;
+            self.metadata_listener = None;
+            self.metadata = None;
+            return;
+        }
         match self.graph.remove(id) {
             Removed::Node(node) => {
                 if node.device_kind().is_some() {
@@ -399,7 +483,7 @@ impl Session {
                 if self.streams.remove(&id).is_some() {
                     let _ = self.events.send(BackendEvent::StreamRemoved(id));
                 }
-                self.pending_moves.remove(&id);
+                self.pending_moves.cancel(id);
                 self.last_moves.remove(&id);
             }
             Removed::Port(port) => self
@@ -443,14 +527,19 @@ impl Session {
                 self.monitor_output = output;
                 self.reconcile();
             }
-            BackendCommand::SetDefaultSink(name) => self.set_default_sink(name.as_deref()),
+            BackendCommand::SetDefaultSink(name) => {
+                self.desired_default_sink = Some(name);
+                self.apply_default_sink();
+            }
             BackendCommand::MoveStream { node_id, target } => match target {
-                Some(target) if self.graph.node_by_name(&target).is_none() => {
-                    self.pending_moves.insert(node_id, target);
+                Some(target)
+                    if self.metadata.is_none() || self.graph.node_by_name(&target).is_none() =>
+                {
+                    self.pending_moves.defer(node_id, target);
                 }
                 target => {
                     // An older deferred move must not override this one later.
-                    self.pending_moves.remove(&node_id);
+                    self.pending_moves.cancel(node_id);
                     self.apply_move(node_id, target.as_deref());
                 }
             },
@@ -523,12 +612,20 @@ impl Session {
         }
     }
 
-    fn set_default_sink(&self, name: Option<&str>) {
-        let Some(metadata) = &self.metadata else {
-            tracing::warn!("default metadata not available; cannot set the default sink");
+    /// Writes the desired default sink, if there is one and the metadata is bound
+    /// (otherwise `watch_metadata` does it once the metadata appears).
+    fn apply_default_sink(&self) {
+        let (Some(metadata), Some(name)) = (&self.metadata, &self.desired_default_sink) else {
+            if self.desired_default_sink.is_some() {
+                tracing::info!(
+                    "default metadata not available yet; setting the default sink later"
+                );
+            }
             return;
         };
-        let value = name.map(|n| serde_json::json!({ "name": n }).to_string());
+        let value = name
+            .as_deref()
+            .map(|n| serde_json::json!({ "name": n }).to_string());
         metadata.set_property(
             0,
             DEFAULT_SINK_KEY,
@@ -537,7 +634,8 @@ impl Session {
         );
     }
 
-    /// Sets (or, for `None`, clears) the stream's `target.object`.
+    /// Sets (or, for `None`, clears) the stream's `target.object`. Callers defer
+    /// `Some` moves while no metadata is bound; a clear without metadata is moot.
     fn apply_move(&mut self, node_id: u32, target: Option<&str>) {
         let Some(metadata) = &self.metadata else {
             return;
@@ -556,17 +654,18 @@ impl Session {
         self.last_moves.insert(node_id, target.to_owned());
     }
 
-    fn flush_pending_moves(&mut self, appeared: &str) {
-        let ready: Vec<u32> = self
+    /// Applies the deferred moves whose target node exists now. Without metadata
+    /// nothing can be applied, so everything stays queued.
+    fn flush_pending_moves(&mut self) {
+        if self.metadata.is_none() {
+            return;
+        }
+        let graph = &self.graph;
+        let ready = self
             .pending_moves
-            .iter()
-            .filter(|(_, target)| *target == appeared)
-            .map(|(id, _)| *id)
-            .collect();
-        for node_id in ready {
-            if let Some(target) = self.pending_moves.remove(&node_id) {
-                self.apply_move(node_id, Some(&target));
-            }
+            .take_ready(|name| graph.node_by_name(name).is_some());
+        for (node_id, target) in ready {
+            self.apply_move(node_id, Some(&target));
         }
     }
 
@@ -646,6 +745,37 @@ impl Session {
     }
 }
 
+/// Moves to nodes that cannot be applied yet: the target node does not exist yet or
+/// the `default` metadata is not bound. At most one per stream; the newest wins.
+#[derive(Default)]
+struct PendingMoves(HashMap<u32, String>);
+
+impl PendingMoves {
+    fn defer(&mut self, node_id: u32, target: String) {
+        self.0.insert(node_id, target);
+    }
+
+    fn cancel(&mut self, node_id: u32) {
+        self.0.remove(&node_id);
+    }
+
+    /// Removes and returns the moves whose target exists; the rest stay queued.
+    fn take_ready(&mut self, exists: impl Fn(&str) -> bool) -> Vec<(u32, String)> {
+        let ready: Vec<u32> = self
+            .0
+            .iter()
+            .filter(|(_, target)| exists(target))
+            .map(|(id, _)| *id)
+            .collect();
+        let mut moves: Vec<(u32, String)> = ready
+            .into_iter()
+            .filter_map(|id| self.0.remove(&id).map(|target| (id, target)))
+            .collect();
+        moves.sort_unstable();
+        moves
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -662,5 +792,42 @@ mod tests {
             "invalid argument (-EINVAL)"
         );
         assert!(!ends_session(42, -EPIPE), "error on another object");
+    }
+
+    #[test]
+    fn startup_waits_for_metadata_until_the_timeout() {
+        assert_eq!(startup_wait(true, Duration::ZERO), StartupWait::Bound);
+        assert_eq!(startup_wait(true, METADATA_TIMEOUT * 2), StartupWait::Bound);
+        assert_eq!(
+            startup_wait(false, Duration::from_millis(100)),
+            StartupWait::Waiting
+        );
+        assert_eq!(startup_wait(false, METADATA_TIMEOUT), StartupWait::TimedOut);
+    }
+
+    #[test]
+    fn pending_moves_keep_what_cannot_be_applied() {
+        let mut pending = PendingMoves::default();
+        pending.defer(1, "a".into());
+        pending.defer(2, "b".into());
+        pending.defer(3, "a".into());
+        assert!(pending.take_ready(|_| false).is_empty());
+        assert_eq!(
+            pending.take_ready(|n| n == "a"),
+            vec![(1, "a".into()), (3, "a".into())]
+        );
+        assert!(pending.take_ready(|n| n == "a").is_empty(), "applied once");
+        assert_eq!(pending.take_ready(|_| true), vec![(2, "b".into())]);
+    }
+
+    #[test]
+    fn newest_pending_move_wins_and_cancel_drops_it() {
+        let mut pending = PendingMoves::default();
+        pending.defer(1, "a".into());
+        pending.defer(1, "b".into());
+        assert_eq!(pending.take_ready(|_| true), vec![(1, "b".into())]);
+        pending.defer(1, "c".into());
+        pending.cancel(1);
+        assert!(pending.take_ready(|_| true).is_empty());
     }
 }
