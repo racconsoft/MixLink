@@ -2,7 +2,9 @@
 # Removes a MixLink installation done by scripts/install.sh (no sudo).
 #
 # Usage: scripts/uninstall.sh [--purge]
-#   --purge  also remove the user config directory (~/.config/mixlink)
+#   --purge  also remove the config: $MIXLINK_CONFIG if set (non-empty), else
+#            the user config directory (~/.config/mixlink, or
+#            $XDG_CONFIG_HOME/mixlink)
 set -euo pipefail
 
 PURGE=0
@@ -72,7 +74,15 @@ fi
 
 if [ "$PURGE" -eq 1 ]; then
   echo "==> Removing config (--purge)"
-  if [ -d "$CONFIG_HOME/mixlink" ]; then
+  if [ -n "${MIXLINK_CONFIG:-}" ]; then
+    # Mirrors crates/core/src/paths.rs: MIXLINK_CONFIG (non-empty) takes
+    # precedence over XDG_CONFIG_HOME/HOME. Only the file itself is removed,
+    # even if it lives in a directory named "mixlink".
+    if [ -f "$MIXLINK_CONFIG" ]; then
+      rm -f "$MIXLINK_CONFIG"
+      echo "removed $MIXLINK_CONFIG"
+    fi
+  elif [ -d "$CONFIG_HOME/mixlink" ]; then
     rm -rf "$CONFIG_HOME/mixlink"
     echo "removed $CONFIG_HOME/mixlink"
   fi

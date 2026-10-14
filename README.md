@@ -202,11 +202,14 @@ apps = ["discord", "slack"]
 
 ```bash
 scripts/uninstall.sh            # keeps your config
-scripts/uninstall.sh --purge    # also removes ~/.config/mixlink
+scripts/uninstall.sh --purge    # also removes the config (see below)
 ```
 
 Stops and disables the `mixlinkd` service, stops a running `mixlink-gui`, and removes
 everything `scripts/install.sh` put under `~/.local` and the autostart entry.
+With `--purge`, it also removes `$MIXLINK_CONFIG` if that's set to a non-empty value,
+or otherwise `~/.config/mixlink` (`$XDG_CONFIG_HOME/mixlink` if `XDG_CONFIG_HOME` is set) —
+the same precedence `mixlinkd`/`mixlink` use to find the config file.
 
 ## Development
 
