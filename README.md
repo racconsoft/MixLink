@@ -68,7 +68,7 @@ Best-effort package names (check your distro's exact names if a build fails):
 ## Installation
 
 ```bash
-git clone <repo-url> mixlink
+git clone https://github.com/racconsoft/MixLink.git mixlink
 cd mixlink
 scripts/install.sh
 ```

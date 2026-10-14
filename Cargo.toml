@@ -6,3 +6,5 @@ members = ["crates/core", "crates/daemon", "crates/cli", "crates/desktop", "gui/
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
+repository = "https://github.com/racconsoft/MixLink"
+homepage = "https://github.com/racconsoft/MixLink"
