@@ -12,8 +12,8 @@ und ein Stream-Mix, dauerhafte App-Zuweisungen – gesteuert über die CLI `wave
 ## Installation
 
 ```bash
-cargo install --path crates/daemon
-cargo install --path crates/cli
+cargo install --locked --root ~/.local --path crates/daemon   # landet in ~/.local/bin
+cargo install --locked --root ~/.local --path crates/cli
 mkdir -p ~/.config/systemd/user
 cp packaging/systemd/wavelinkd.service ~/.config/systemd/user/
 systemctl --user daemon-reload

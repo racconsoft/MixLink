@@ -158,10 +158,16 @@ async fn routes_moves_and_mixes_through_real_pipewire() {
         node_id: stream.node_id,
         target: Some("wavelink.channel.e2e-a".into()),
     });
-    wait_for(&mut rx, "move to channel a", |e| {
+    let moved = wait_for(&mut rx, "move to channel a", |e| {
         matches!(e, BackendEvent::StreamUpdated(s) if s.node_id == stream.node_id && s.target.as_deref() == Some("wavelink.channel.e2e-a"))
     })
     .await;
+    // The stream went idle → running meanwhile; state-only info updates must not
+    // overwrite its identity.
+    let BackendEvent::StreamUpdated(moved) = moved else {
+        unreachable!()
+    };
+    assert_eq!(moved.app, "pw-play", "identity survives state changes");
     let meters = wait_for(
         &mut rx,
         "meters",

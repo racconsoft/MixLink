@@ -4,7 +4,7 @@ After=pipewire.service wireplumber.service
 Requires=pipewire.service
 
 [Service]
-ExecStart=%h/.cargo/bin/wavelinkd
+ExecStart=%h/.local/bin/wavelinkd
 Restart=on-failure
 RestartSec=1
 

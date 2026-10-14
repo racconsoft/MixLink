@@ -400,6 +400,11 @@ impl Session {
                 let Some(session) = weak.upgrade() else {
                     return;
                 };
+                // State-only updates (e.g. idle → running) carry an empty props dict;
+                // only a PROPS change has the full set.
+                if !info.change_mask().contains(pw::node::NodeChangeMask::PROPS) {
+                    return;
+                }
                 let Some(props) = info.props() else { return };
                 let get = |k: &str| props.get(k).map(str::to_owned);
                 if get("node.dont-move").as_deref() == Some("true") {
