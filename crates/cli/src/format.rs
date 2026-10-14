@@ -44,18 +44,29 @@ pub fn parse_mix_level(input: &str) -> Result<MixLevelArg, String> {
     }
 }
 
-/// `Monitor mix: 80 → alsa_output.x` / `Stream mix: 60 (muted) → MixLink Stream Mix`
+/// Where the stream mix goes: just OBS, or OBS plus a hardware device.
+fn stream_target(mix: &Mix) -> String {
+    match mix.output_device.as_deref() {
+        Some(device) => format!("MixLink Stream Mix (OBS) + {device}"),
+        None => "MixLink Stream Mix (OBS only)".to_string(),
+    }
+}
+
+/// `Monitor mix: 80 → alsa_output.x` / `Stream mix: 60 (muted) → MixLink Stream Mix (OBS only)`
 pub fn format_mix(kind: MixKind, mix: &Mix) -> String {
     let (label, output) = match kind {
-        MixKind::Monitor => ("Monitor", mix.output_device.as_deref().unwrap_or("(none)")),
-        MixKind::Stream => ("Stream", "MixLink Stream Mix"),
+        MixKind::Monitor => (
+            "Monitor",
+            mix.output_device.as_deref().unwrap_or("(none)").to_string(),
+        ),
+        MixKind::Stream => ("Stream", stream_target(mix)),
     };
     let muted = if mix.muted { " (muted)" } else { "" };
     format!("{label} mix: {}{muted} → {output}", mix.volume)
 }
 
-/// Playback devices, the current monitor output marked with `*`.
-pub fn format_outputs(devices: &[Device], current: Option<&str>) -> String {
+/// Playback devices; `M` marks the current monitor output, `S` the stream output.
+pub fn format_outputs(devices: &[Device], monitor: Option<&str>, stream: Option<&str>) -> String {
     let sinks: Vec<&Device> = devices
         .iter()
         .filter(|d| d.kind == DeviceKind::Sink)
@@ -70,12 +81,17 @@ pub fn format_outputs(devices: &[Device], current: Option<&str>) -> String {
         .unwrap_or(0);
     let mut out = String::new();
     for d in sinks {
-        let mark = if current == Some(d.name.as_str()) {
-            '*'
+        let m = if monitor == Some(d.name.as_str()) {
+            'M'
         } else {
             ' '
         };
-        let _ = writeln!(out, "{mark} {:<width$}  {}", d.description, d.name);
+        let s = if stream == Some(d.name.as_str()) {
+            'S'
+        } else {
+            ' '
+        };
+        let _ = writeln!(out, "{m}{s} {:<width$}  {}", d.description, d.name);
     }
     out
 }
@@ -134,9 +150,10 @@ pub fn format_status(state: &State) -> String {
     );
     let _ = writeln!(
         out,
-        "Stream mix:  {}{} → MixLink Stream Mix",
+        "Stream mix:  {}{} → {}",
         stream.volume,
-        mute(stream.muted)
+        mute(stream.muted),
+        stream_target(stream)
     );
     let listen = match config.listen {
         MixKind::Monitor => "monitor",
@@ -213,6 +230,18 @@ mod tests {
         assert!(text.contains("alsa_output.headphones"));
         assert!(text.contains("Spotify → Music"));
         assert!(text.contains("Listening to: monitor"));
+        assert!(
+            text.contains("MixLink Stream Mix (OBS only)"),
+            "no stream output device is configured:\n{text}"
+        );
+    }
+
+    #[test]
+    fn status_shows_the_stream_output_device_when_set() {
+        let mut s = state();
+        s.config.mixes.stream.output_device = Some("alsa_output.hdmi".into());
+        let text = format_status(&s);
+        assert!(text.contains("MixLink Stream Mix (OBS) + alsa_output.hdmi"));
     }
 
     #[test]
@@ -246,28 +275,55 @@ mod tests {
         };
         assert_eq!(
             format_mix(MixKind::Stream, &stream),
-            "Stream mix: 60 (muted) → MixLink Stream Mix"
+            "Stream mix: 60 (muted) → MixLink Stream Mix (OBS only)"
+        );
+        let stream_with_device = Mix {
+            volume: 60,
+            muted: false,
+            output_device: Some("alsa_output.hdmi".into()),
+        };
+        assert_eq!(
+            format_mix(MixKind::Stream, &stream_with_device),
+            "Stream mix: 60 → MixLink Stream Mix (OBS) + alsa_output.hdmi"
         );
     }
 
-    #[test]
-    fn outputs_list_sinks_and_mark_the_current_one() {
+    fn devices_fixture() -> Vec<Device> {
         let device = |name: &str, description: &str, kind| Device {
             name: name.into(),
             description: description.into(),
             kind,
         };
-        let devices = vec![
+        vec![
             device("alsa_output.speakers", "Speakers", DeviceKind::Sink),
             device("alsa_input.mic", "Mic", DeviceKind::Source),
             device("alsa_output.hdmi", "HDMI Audio", DeviceKind::Sink),
-        ];
-        let text = format_outputs(&devices, Some("alsa_output.hdmi"));
+        ]
+    }
+
+    #[test]
+    fn outputs_mark_the_current_monitor_and_stream_devices() {
+        let devices = devices_fixture();
+        let text = format_outputs(&devices, Some("alsa_output.hdmi"), Some("alsa_output.hdmi"));
         assert_eq!(
             text,
-            "  Speakers    alsa_output.speakers\n* HDMI Audio  alsa_output.hdmi\n"
+            "   Speakers    alsa_output.speakers\nMS HDMI Audio  alsa_output.hdmi\n"
         );
-        assert!(format_outputs(&[], None).contains("No playback devices"));
+        assert!(format_outputs(&[], None, None).contains("No playback devices"));
+    }
+
+    #[test]
+    fn outputs_mark_monitor_and_stream_devices_separately() {
+        let devices = devices_fixture();
+        let text = format_outputs(
+            &devices,
+            Some("alsa_output.speakers"),
+            Some("alsa_output.hdmi"),
+        );
+        assert_eq!(
+            text,
+            "M  Speakers    alsa_output.speakers\n S HDMI Audio  alsa_output.hdmi\n"
+        );
     }
 
     #[test]

@@ -35,8 +35,10 @@ mixlink mute voice both              # umschalten (on/off möglich)
 mixlink assign discord "voice chat"  # App dauerhaft einem Kanal zuordnen
 mixlink unassign discord
 mixlink listen stream                # Stream Mix auf den Kopfhörern abhören
-mixlink output                       # Wiedergabegeräte auflisten (* = Monitor-Ausgang)
+mixlink output                       # Wiedergabegeräte auflisten (M/S = Monitor-/Stream-Ausgang)
 mixlink output kopfhörer             # Monitor Mix auf diesem Gerät ausgeben
+mixlink output --stream hdmi         # Stream Mix zusätzlich auf dieses Gerät ausgeben
+mixlink output --stream none         # … wieder nur OBS (Default)
 mixlink mix monitor 80               # Master des Monitor Mix (0–100, +N, -N)
 mixlink mix stream mute              # Stream Mix stumm (unmute/toggle möglich)
 mixlink --json status                # maschinenlesbar

@@ -45,7 +45,13 @@ enum Cmd {
     /// Choose which mix you hear on the monitor output
     Listen { mix: MixKindArg },
     /// List playback devices, or play the monitor mix on <device>
-    Output { device: Option<String> },
+    Output {
+        device: Option<String>,
+        /// Also route the Stream mix to <device> ("none" clears it; the virtual
+        /// OBS source always stays)
+        #[arg(long)]
+        stream: Option<String>,
+    },
     /// Set a mix master: 0–100, +N, -N, mute, unmute or toggle
     Mix {
         mix: MixKindArg,
@@ -132,8 +138,9 @@ fn run(cli: &Cli) -> Result<(), String> {
             }
             let devices: Vec<Device> = from_value(devices)?;
             let state: State = from_value(call(Command::GetState)?)?;
-            let current = state.config.mixes.monitor.output_device.as_deref();
-            print!("{}", format::format_outputs(&devices, current));
+            let monitor = state.config.mixes.monitor.output_device.as_deref();
+            let stream = state.config.mixes.stream.output_device.as_deref();
+            print!("{}", format::format_outputs(&devices, monitor, stream));
             return Ok(());
         }
     };
@@ -146,6 +153,12 @@ fn run(cli: &Cli) -> Result<(), String> {
             let state: State = from_value(result)?;
             print!("{}", format::format_status(&state));
         }
+        Cmd::Output {
+            stream: Some(_), ..
+        } => println!(
+            "{}",
+            format::format_mix(MixKind::Stream, &from_value::<Mix>(result)?)
+        ),
         Cmd::Output { .. } => println!(
             "{}",
             format::format_mix(MixKind::Monitor, &from_value::<Mix>(result)?)
@@ -176,10 +189,31 @@ fn print_json(value: &serde_json::Value) -> Result<(), String> {
 
 fn plan(cmd: &Cmd) -> Result<Plan, String> {
     Ok(Plan::Call(match cmd {
-        Cmd::Output { device: None } => return Ok(Plan::ListOutputs),
+        Cmd::Output {
+            device: None,
+            stream: None,
+        } => return Ok(Plan::ListOutputs),
+        Cmd::Output {
+            device: Some(_),
+            stream: Some(_),
+        } => {
+            return Err("give either a device or --stream <device>, not both".into());
+        }
         Cmd::Output {
             device: Some(device),
+            stream: None,
         } => set_mix(MixKind::Monitor, None, None, None, Some(device.clone())),
+        Cmd::Output {
+            device: None,
+            stream: Some(device),
+        } => {
+            let value = if device.eq_ignore_ascii_case("none") {
+                String::new()
+            } else {
+                device.clone()
+            };
+            set_mix(MixKind::Stream, None, None, None, Some(value))
+        }
         Cmd::Mix { mix, level } => {
             let mix = MixKind::from(*mix);
             match format::parse_mix_level(level)? {
@@ -286,6 +320,45 @@ mod tests {
                 None,
                 Some("hdmi".into())
             )))
+        );
+    }
+
+    #[test]
+    fn output_stream_flag_sets_or_clears_the_stream_device() {
+        assert_eq!(
+            parse(&["output", "--stream", "hdmi"]),
+            Ok(Plan::Call(set_mix(
+                MixKind::Stream,
+                None,
+                None,
+                None,
+                Some("hdmi".into())
+            )))
+        );
+        assert_eq!(
+            parse(&["output", "--stream", "none"]),
+            Ok(Plan::Call(set_mix(
+                MixKind::Stream,
+                None,
+                None,
+                None,
+                Some("".into())
+            )))
+        );
+        assert_eq!(
+            parse(&["output", "--stream", "None"]),
+            Ok(Plan::Call(set_mix(
+                MixKind::Stream,
+                None,
+                None,
+                None,
+                Some("".into())
+            ))),
+            "clearing is case-insensitive"
+        );
+        assert!(
+            parse(&["output", "hdmi", "--stream", "speakers"]).is_err(),
+            "device and --stream are mutually exclusive"
         );
     }
 
