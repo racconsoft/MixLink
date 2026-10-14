@@ -33,7 +33,7 @@
   "dialog.cancel": "Cancel",
   "outputs.monitor": "Monitor Mix",
   "outputs.stream": "Stream Mix",
-  "outputs.streamTarget": "MixLink Stream Mix (OBS)",
+  "outputs.streamOnly": "MixLink Stream Mix (OBS) only",
   "outputs.disconnected": "{name} (disconnected)",
   "outputs.mute": "Mute {name}",
   "outputs.volume": "{name} volume",

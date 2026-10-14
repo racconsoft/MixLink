@@ -117,7 +117,10 @@ export function applyMockCommand(state: State, cmd: Command): unknown {
       const m = state.config.mixes[cmd.args.mix];
       if (cmd.args.volume !== undefined) m.volume = cmd.args.volume;
       if (cmd.args.muted !== undefined) m.muted = cmd.args.muted;
-      if (cmd.args.output_device !== undefined) m.output_device = cmd.args.output_device;
+      if (cmd.args.output_device !== undefined) {
+        if (cmd.args.output_device === "") delete m.output_device;
+        else m.output_device = cmd.args.output_device;
+      }
       return m;
     }
     case "set_listen":
