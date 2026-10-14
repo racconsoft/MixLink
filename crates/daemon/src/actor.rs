@@ -51,7 +51,10 @@ pub async fn run_actor<B: AudioBackend>(
                 Some(ActorMsg::Shutdown) | None => break,
             },
             Some(event) = channels.backend_events.recv() => {
-                if let Some(meters) = app.on_backend_event(event) {
+                // ~30 Hz: only serialize meters when someone listens.
+                if let Some(meters) = app.on_backend_event(event)
+                    && channels.broadcast.receiver_count() > 0
+                {
                     let _ = channels.broadcast.send(Broadcast::Meters(to_line(&meters).into()));
                 }
             }
