@@ -1,7 +1,10 @@
 [package]
 name = "mixlink-gui"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Tauri-based GUI for MixLink, a Wave Link-style audio mixer for Linux/PipeWire"
+readme = "../../README.md"
 
 [[bin]]
 name = "mixlink-gui"

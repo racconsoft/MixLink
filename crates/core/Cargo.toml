@@ -1,7 +1,10 @@
 [package]
 name = "mixlink-core"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Shared protocol, config and client types for MixLink"
+readme = "../../README.md"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

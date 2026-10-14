@@ -1,3 +1,8 @@
 [workspace]
 resolver = "3"
 members = ["crates/core", "crates/daemon", "crates/cli", "crates/desktop", "gui/src-tauri"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
