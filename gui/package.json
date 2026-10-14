@@ -1,0 +1,35 @@
+{
+  "name": "mixlink-gui",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:mock": "VITE_MIXLINK_MOCK=1 vite",
+    "build": "vite build",
+    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "test": "vitest run",
+    "screenshot": "playwright test",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@lucide/svelte": "^1.57.0",
+    "@tauri-apps/api": "^2.12.3"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.0",
+    "@sveltejs/vite-plugin-svelte": "^7.3.1",
+    "@tauri-apps/cli": "^2.12.2",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/svelte": "^5.4.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@tsconfig/svelte": "^5.0.4",
+    "@types/node": "^26.6.5",
+    "jsdom": "^30.1.2",
+    "svelte": "^5.57.2",
+    "svelte-check": "^4.7.6",
+    "typescript": "~6.0.3",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.4"
+  }
+}
