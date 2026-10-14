@@ -178,6 +178,11 @@ pub fn kde_icon_theme(config_home: &Path) -> Option<String> {
 }
 
 /// Caches resolved icons per app (as data URLs) for the session.
+/// The cache key: the same app may report a different stream icon later.
+fn cache_key(app: &str, icon_name: Option<&str>) -> String {
+    format!("{app}|{}", icon_name.unwrap_or(""))
+}
+
 pub struct IconCache {
     theme: String,
     dirs: Vec<PathBuf>,
@@ -194,7 +199,8 @@ impl IconCache {
     }
 
     pub fn get(&self, app: &str, icon_name: Option<&str>) -> Option<String> {
-        if let Some(hit) = self.cache.lock().unwrap().get(app) {
+        let key = cache_key(app, icon_name);
+        if let Some(hit) = self.cache.lock().unwrap().get(&key) {
             return hit.clone();
         }
         let lookup = |name: &str| {
@@ -204,10 +210,7 @@ impl IconCache {
                 .find()
         };
         let url = resolve_icon(app, icon_name, &self.dirs, lookup).and_then(|p| data_url(&p));
-        self.cache
-            .lock()
-            .unwrap()
-            .insert(app.to_owned(), url.clone());
+        self.cache.lock().unwrap().insert(key, url.clone());
         url
     }
 }
@@ -222,6 +225,16 @@ mod tests {
         let p = dir.join(name);
         fs::write(&p, body).unwrap();
         p
+    }
+
+    #[test]
+    fn cache_key_includes_the_icon_name() {
+        assert_eq!(cache_key("Firefox", None), "Firefox|");
+        assert_eq!(cache_key("Firefox", Some("firefox")), "Firefox|firefox");
+        assert_ne!(
+            cache_key("Firefox", None),
+            cache_key("Firefox", Some("firefox"))
+        );
     }
 
     #[test]
