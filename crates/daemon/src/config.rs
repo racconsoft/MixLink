@@ -4,7 +4,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use wavelink_core::model::{Channel, Config, MixKind};
+use wavelink_core::model::{Channel, ChannelKind, Config, MixKind};
 
 pub fn default_config() -> Config {
     let channel = |id: &str, name: &str, icon: &str, color: &str| {
@@ -63,17 +63,58 @@ fn validate(config: Config) -> Result<Config, String> {
     if config.channels.is_empty() {
         return Err("config has no channels".into());
     }
-    if config.channel(&config.fallback_channel).is_none() {
+    match config.channel(&config.fallback_channel) {
+        None => {
+            return Err(format!(
+                "fallback channel '{}' does not exist",
+                config.fallback_channel
+            ));
+        }
+        Some(c) if c.kind == ChannelKind::Input => {
+            return Err(format!(
+                "fallback channel '{}' is an input channel",
+                config.fallback_channel
+            ));
+        }
+        Some(_) => {}
+    }
+    if let Some(bad) = config.channels.iter().find(|c| !is_slug(&c.id)) {
         return Err(format!(
-            "fallback channel '{}' does not exist",
-            config.fallback_channel
+            "channel id '{}' may only contain a-z, 0-9 and '-'",
+            bad.id
         ));
     }
     let mut ids = HashSet::new();
     if let Some(dup) = config.channels.iter().find(|c| !ids.insert(c.id.as_str())) {
         return Err(format!("duplicate channel id '{}'", dup.id));
     }
+    for c in &config.channels {
+        for (mix, level) in [("monitor", &c.monitor), ("stream", &c.stream)] {
+            if level.volume > 100 {
+                return Err(format!(
+                    "channel '{}': {mix} volume {} is above 100",
+                    c.id, level.volume
+                ));
+            }
+        }
+    }
+    for (mix, m) in [
+        ("monitor", &config.mixes.monitor),
+        ("stream", &config.mixes.stream),
+    ] {
+        if m.volume > 100 {
+            return Err(format!("{mix} mix volume {} is above 100", m.volume));
+        }
+    }
     Ok(config)
+}
+
+/// Channel ids end up in PipeWire node names: `[a-z0-9-]+`.
+fn is_slug(id: &str) -> bool {
+    !id.is_empty()
+        && id
+            .chars()
+            .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '-')
 }
 
 fn recover(path: &Path, error: String) -> LoadOutcome {
@@ -165,6 +206,74 @@ mod tests {
         )
         .unwrap();
         assert!(matches!(load(&path), LoadOutcome::Recovered { .. }));
+    }
+
+    fn load_text(text: &str) -> LoadOutcome {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, text).unwrap();
+        load(&path)
+    }
+
+    fn assert_invalid(text: &str, expected: &str) {
+        match load_text(text) {
+            LoadOutcome::Recovered { error, .. } => {
+                assert!(
+                    error.contains(expected),
+                    "error '{error}' lacks '{expected}'"
+                )
+            }
+            other => panic!("accepted invalid config {text:?}: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn input_channel_as_fallback_is_invalid() {
+        assert_invalid(
+            "fallback_channel = \"mic\"\n[[channels]]\nid = \"mic\"\nname = \"Mic\"\nkind = \"input\"\nsource = \"alsa_input.x\"\n",
+            "input channel",
+        );
+    }
+
+    #[test]
+    fn channel_ids_must_be_slugs() {
+        for id in ["", "Music", "my music", "a.b", "nul\\u0000"] {
+            assert_invalid(
+                &format!(
+                    "fallback_channel = \"a\"\n[[channels]]\nid = \"a\"\nname = \"A\"\n[[channels]]\nid = \"{id}\"\nname = \"B\"\n"
+                ),
+                "may only contain",
+            );
+        }
+        assert!(matches!(
+            load_text(
+                "fallback_channel = \"voice-chat-2\"\n[[channels]]\nid = \"voice-chat-2\"\nname = \"V\"\n"
+            ),
+            LoadOutcome::Loaded(_)
+        ));
+    }
+
+    #[test]
+    fn volumes_above_100_are_invalid() {
+        let base = "fallback_channel = \"a\"\n[[channels]]\nid = \"a\"\nname = \"A\"\n";
+        assert_invalid(
+            &format!("{base}monitor = {{ volume = 101 }}\n"),
+            "monitor volume 101",
+        );
+        assert_invalid(
+            &format!("{base}stream = {{ volume = 255 }}\n"),
+            "stream volume 255",
+        );
+        assert_invalid(
+            &format!("{base}[mixes.stream]\nvolume = 150\n"),
+            "stream mix volume 150",
+        );
+        assert!(matches!(
+            load_text(&format!(
+                "{base}stream = {{ volume = 0 }}\n[mixes.monitor]\nvolume = 100\n"
+            )),
+            LoadOutcome::Loaded(_)
+        ));
     }
 
     #[test]
