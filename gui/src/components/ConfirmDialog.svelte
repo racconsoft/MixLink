@@ -9,6 +9,8 @@
   } = $props();
 </script>
 
+<svelte:window onkeydown={(e) => e.key === "Escape" && oncancel()} />
+
 <div class="dialog-backdrop" role="presentation" onclick={oncancel}>
   <div class="dialog" role="alertdialog" aria-modal="true" aria-label={message} onclick={(e) => e.stopPropagation()}>
     <p class="message">{message}</p>

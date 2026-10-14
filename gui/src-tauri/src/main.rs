@@ -43,7 +43,9 @@ fn main() {
             bridge::snapshot,
             bridge::start_service,
             bridge::log_frontend,
-            bridge::app_icon
+            bridge::app_icon,
+            bridge::get_autostart,
+            bridge::set_autostart
         ])
         .run(tauri::generate_context!())
         .expect("running the MixLink GUI");

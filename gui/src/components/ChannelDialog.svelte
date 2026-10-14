@@ -30,6 +30,8 @@
   }
 </script>
 
+<svelte:window onkeydown={(e) => e.key === "Escape" && onclose()} />
+
 <div class="dialog-backdrop" role="presentation" onclick={onclose}>
   <form class="dialog" onsubmit={submit} onclick={(e) => e.stopPropagation()}>
     <h2>{original ? t("dialog.editTitle") : t("dialog.createTitle")}</h2>

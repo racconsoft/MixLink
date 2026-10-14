@@ -95,6 +95,22 @@ pub async fn app_icon(
 }
 
 #[tauri::command]
+pub fn get_autostart() -> bool {
+    mixlink_desktop::autostart::is_enabled(&mixlink_desktop::autostart::config_home())
+}
+
+#[tauri::command]
+pub fn set_autostart(enabled: bool) -> Result<(), String> {
+    let exec = std::env::current_exe().map_err(|e| e.to_string())?;
+    mixlink_desktop::autostart::set_enabled(
+        &mixlink_desktop::autostart::config_home(),
+        enabled,
+        &exec,
+    )
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn log_frontend(level: String, message: String) {
     match level.as_str() {
         "error" => tracing::error!(target: "ui", "{message}"),

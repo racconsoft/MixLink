@@ -7,8 +7,14 @@
   import ChannelStrip from "./components/ChannelStrip.svelte";
   import AddChannelTile from "./components/AddChannelTile.svelte";
   import ChannelDialog from "./components/ChannelDialog.svelte";
+  import OutputRow from "./components/OutputRow.svelte";
+  import SettingsDialog from "./components/SettingsDialog.svelte";
+  import ConnectionOverlay from "./components/ConnectionOverlay.svelte";
+  import WarningBanner from "./components/WarningBanner.svelte";
+  import Toasts from "./components/Toasts.svelte";
 
   let dialog = $state<null | { kind: "create" } | { kind: "edit"; channel: Channel }>(null);
+  let settingsOpen = $state(false);
 
   onMount(() => initBackend());
 </script>
@@ -18,8 +24,9 @@
     <span class="title">{t("app.title")}</span>
     <span class="conn" class:ok={$connected}>● {$connected ? t("app.connected") : t("app.disconnected")}</span>
     <span class="spacer"></span>
-    <button class="icon-btn" title={t("app.settings")} aria-label={t("app.settings")}><Settings size={16} /></button>
+    <button class="icon-btn" title={t("app.settings")} aria-label={t("app.settings")} onclick={() => (settingsOpen = true)}><Settings size={16} /></button>
   </header>
+  <WarningBanner />
 
   <main>
     <h2 class="section">{t("channels.title")}</h2>
@@ -40,11 +47,14 @@
 
     <h2 class="section">{t("outputs.title")}</h2>
     <div class="outputs" data-testid="outputs">
-      <div class="surface row">{t("outputs.monitor")}</div>
-      <div class="surface row">{t("outputs.stream")}</div>
+      <OutputRow kind="monitor" />
+      <OutputRow kind="stream" />
     </div>
   </main>
   {#if dialog}<ChannelDialog mode={dialog} onclose={() => (dialog = null)} />{/if}
+  {#if settingsOpen}<SettingsDialog onclose={() => (settingsOpen = false)} />{/if}
+  <ConnectionOverlay />
+  <Toasts />
 </div>
 
 <style>
@@ -61,5 +71,4 @@
     text-transform: uppercase; color: var(--text-dim); }
   .strips { display: flex; gap: 8px; padding: 0 12px 6px; overflow-x: auto; align-items: stretch; }
   .outputs { display: flex; flex-direction: column; gap: 6px; padding: 0 12px; }
-  .row { padding: 8px 10px; }
 </style>

@@ -9,8 +9,15 @@ test("main window", async ({ page }) => {
 
 test("disconnected", async ({ page }) => {
   await page.goto("/?disconnected=1");
-  await expect(page.getByText("disconnected")).toBeVisible();
+  await expect(page.getByText("MixLink service is not running")).toBeVisible();
   await page.screenshot({ path: "screenshots/disconnected.png" });
+});
+
+test("settings and warning", async ({ page }) => {
+  await page.goto("/?warning=1");
+  await expect(page.getByRole("alert")).toBeVisible();
+  await page.getByTitle("Settings").click();
+  await page.screenshot({ path: "screenshots/settings.png" });
 });
 
 test("channel dialog and app picker", async ({ page }) => {
