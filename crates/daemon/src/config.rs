@@ -4,7 +4,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use wavelink_core::model::{Channel, ChannelKind, Config, MixKind};
+use mixlink_core::model::{Channel, ChannelKind, Config, MixKind};
 
 pub fn default_config() -> Config {
     let channel = |id: &str, name: &str, icon: &str, color: &str| {
@@ -163,7 +163,7 @@ mod tests {
     #[test]
     fn save_then_load_roundtrips_and_creates_directories() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("nested/wavelink-linux/config.toml");
+        let path = dir.path().join("nested/mixlink/config.toml");
         let mut config = default_config();
         config.channels[1].stream.volume = 42;
         save(&path, &config).unwrap();

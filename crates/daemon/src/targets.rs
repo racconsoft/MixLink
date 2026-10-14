@@ -1,6 +1,6 @@
 //! Translates the configuration into mixer targets.
-use wavelink_core::model::{ChannelId, Config, MAX_CHANNELS, MixKind};
-use wavelink_core::volume::to_gain;
+use mixlink_core::model::{ChannelId, Config, MAX_CHANNELS, MixKind};
+use mixlink_core::volume::to_gain;
 
 use crate::mixer::dsp::{Gains, Targets};
 
@@ -28,7 +28,7 @@ fn level_gain(volume: u8, muted: bool) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wavelink_core::model::Channel;
+    use mixlink_core::model::Channel;
 
     fn config() -> Config {
         let mut music = Channel::new("music", "Music");

@@ -1,5 +1,5 @@
 //! Derives the rule identity of an application stream.
-use wavelink_core::rules::normalize_app;
+use mixlink_core::rules::normalize_app;
 
 /// Identity order: process binary → /proc/<pid>/comm → application.name → node.name.
 pub fn app_identity(

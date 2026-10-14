@@ -1,7 +1,7 @@
 //! Human-readable output and argument parsing for the CLI.
 use std::fmt::Write;
 
-use wavelink_core::model::{Channel, Device, DeviceKind, Level, Mix, MixKind, State};
+use mixlink_core::model::{Channel, Device, DeviceKind, Level, Mix, MixKind, State};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LevelArg {
@@ -24,7 +24,7 @@ pub fn parse_level(input: &str) -> Result<LevelArg, String> {
     }
 }
 
-/// Argument of `wavelink mix`: a level or a mute action.
+/// Argument of `mixlink mix`: a level or a mute action.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MixLevelArg {
     Level(LevelArg),
@@ -44,11 +44,11 @@ pub fn parse_mix_level(input: &str) -> Result<MixLevelArg, String> {
     }
 }
 
-/// `Monitor mix: 80 → alsa_output.x` / `Stream mix: 60 (muted) → WaveLink Stream Mix`
+/// `Monitor mix: 80 → alsa_output.x` / `Stream mix: 60 (muted) → MixLink Stream Mix`
 pub fn format_mix(kind: MixKind, mix: &Mix) -> String {
     let (label, output) = match kind {
         MixKind::Monitor => ("Monitor", mix.output_device.as_deref().unwrap_or("(none)")),
-        MixKind::Stream => ("Stream", "WaveLink Stream Mix"),
+        MixKind::Stream => ("Stream", "MixLink Stream Mix"),
     };
     let muted = if mix.muted { " (muted)" } else { "" };
     format!("{label} mix: {}{muted} → {output}", mix.volume)
@@ -134,7 +134,7 @@ pub fn format_status(state: &State) -> String {
     );
     let _ = writeln!(
         out,
-        "Stream mix:  {}{} → WaveLink Stream Mix",
+        "Stream mix:  {}{} → MixLink Stream Mix",
         stream.volume,
         mute(stream.muted)
     );
@@ -152,7 +152,7 @@ pub fn format_status(state: &State) -> String {
                 .as_deref()
                 .and_then(|id| config.channel(id))
                 .map(|c| c.name.as_str())
-                .unwrap_or("(not in a WaveLink channel)");
+                .unwrap_or("(not in a MixLink channel)");
             let _ = writeln!(out, "  {} → {}", app.name, channel);
         }
     }
@@ -165,7 +165,7 @@ pub fn format_status(state: &State) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wavelink_core::model::{ActiveApp, Channel, Config, MixKind};
+    use mixlink_core::model::{ActiveApp, Channel, Config, MixKind};
 
     fn state() -> State {
         let mut music = Channel::new("music", "Music");
@@ -246,7 +246,7 @@ mod tests {
         };
         assert_eq!(
             format_mix(MixKind::Stream, &stream),
-            "Stream mix: 60 (muted) → WaveLink Stream Mix"
+            "Stream mix: 60 (muted) → MixLink Stream Mix"
         );
     }
 

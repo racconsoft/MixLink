@@ -2,10 +2,10 @@ mod support;
 
 use std::time::Duration;
 
+use mixlinkd::backend::{AudioBackend, BackendCommand, BackendEvent, ChannelSource};
+use mixlinkd::mixer::dsp::{Gains, Targets};
+use mixlinkd::pw::PipeWireBackend;
 use tokio::sync::mpsc;
-use wavelinkd::backend::{AudioBackend, BackendCommand, BackendEvent, ChannelSource};
-use wavelinkd::mixer::dsp::{Gains, Targets};
-use wavelinkd::pw::PipeWireBackend;
 
 async fn wait_for(
     rx: &mut mpsc::UnboundedReceiver<BackendEvent>,
@@ -94,7 +94,7 @@ fn pw_nodes() -> String {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "needs a running PipeWire; stop wavelinkd and Sonusmix first"]
+#[ignore = "needs a running PipeWire; stop mixlinkd and Sonusmix first"]
 async fn routes_moves_and_mixes_through_real_pipewire() {
     let dir = tempfile::tempdir().unwrap();
     let tone = dir.path().join("tone.wav");
@@ -114,7 +114,7 @@ async fn routes_moves_and_mixes_through_real_pipewire() {
         backend.send(BackendCommand::EnsureChannel {
             id: id.to_string(),
             slot,
-            description: format!("WaveLink {id}"),
+            description: format!("MixLink {id}"),
             source: ChannelSource::Virtual,
         });
     }
@@ -127,21 +127,21 @@ async fn routes_moves_and_mixes_through_real_pipewire() {
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     // A silent stream for the clear-target check below.
-    let quiet = support::start_play(&silence, "wavelink.channel.e2e-a");
+    let quiet = support::start_play(&silence, "mixlink.channel.e2e-a");
     let quiet_pid = quiet.id();
     let event = wait_for(&mut rx, "silent pw-play on channel a", |e| {
-        matches!(e, BackendEvent::StreamUpdated(s) if s.app == "pw-play" && s.target.as_deref() == Some("wavelink.channel.e2e-a"))
+        matches!(e, BackendEvent::StreamUpdated(s) if s.app == "pw-play" && s.target.as_deref() == Some("mixlink.channel.e2e-a"))
     })
     .await;
     let BackendEvent::StreamUpdated(silent) = event else {
         unreachable!()
     };
 
-    let recorder = support::start_record(&rec, "wavelink.stream_mix");
-    let mut player = support::start_play(&tone, "wavelink.channel.e2e-b");
+    let recorder = support::start_record(&rec, "mixlink.stream_mix");
+    let mut player = support::start_play(&tone, "mixlink.channel.e2e-b");
     let _reaper = Reaper(vec![quiet_pid, recorder.id(), player.id()]);
     let event = wait_for(&mut rx, "pw-play on channel b", |e| {
-        matches!(e, BackendEvent::StreamUpdated(s) if s.app == "pw-play" && s.node_id != silent.node_id && s.target.as_deref() == Some("wavelink.channel.e2e-b"))
+        matches!(e, BackendEvent::StreamUpdated(s) if s.app == "pw-play" && s.node_id != silent.node_id && s.target.as_deref() == Some("mixlink.channel.e2e-b"))
     })
     .await;
     let BackendEvent::StreamUpdated(stream) = event else {
@@ -152,14 +152,14 @@ async fn routes_moves_and_mixes_through_real_pipewire() {
     // when channel c appears later, the stale deferred move must not fire.
     backend.send(BackendCommand::MoveStream {
         node_id: stream.node_id,
-        target: Some("wavelink.channel.e2e-c".into()),
+        target: Some("mixlink.channel.e2e-c".into()),
     });
     backend.send(BackendCommand::MoveStream {
         node_id: stream.node_id,
-        target: Some("wavelink.channel.e2e-a".into()),
+        target: Some("mixlink.channel.e2e-a".into()),
     });
     let moved = wait_for(&mut rx, "move to channel a", |e| {
-        matches!(e, BackendEvent::StreamUpdated(s) if s.node_id == stream.node_id && s.target.as_deref() == Some("wavelink.channel.e2e-a"))
+        matches!(e, BackendEvent::StreamUpdated(s) if s.node_id == stream.node_id && s.target.as_deref() == Some("mixlink.channel.e2e-a"))
     })
     .await;
     // The stream went idle → running meanwhile; state-only info updates must not
@@ -180,10 +180,10 @@ async fn routes_moves_and_mixes_through_real_pipewire() {
     // becomes audible wherever it ends up).
     backend.send(BackendCommand::MoveStream {
         node_id: silent.node_id,
-        target: Some("wavelink.channel.e2e-b".into()),
+        target: Some("mixlink.channel.e2e-b".into()),
     });
     wait_for(&mut rx, "silent stream on channel b", |e| {
-        matches!(e, BackendEvent::StreamUpdated(s) if s.node_id == silent.node_id && s.target.as_deref() == Some("wavelink.channel.e2e-b"))
+        matches!(e, BackendEvent::StreamUpdated(s) if s.node_id == silent.node_id && s.target.as_deref() == Some("mixlink.channel.e2e-b"))
     })
     .await;
     assert!(stream_metadata(silent.node_id).contains("target.object"));
@@ -192,7 +192,7 @@ async fn routes_moves_and_mixes_through_real_pipewire() {
         target: None,
     });
     wait_for(&mut rx, "silent stream leaving channel b", |e| {
-        matches!(e, BackendEvent::StreamUpdated(s) if s.node_id == silent.node_id && s.target.is_some() && s.target.as_deref() != Some("wavelink.channel.e2e-b"))
+        matches!(e, BackendEvent::StreamUpdated(s) if s.node_id == silent.node_id && s.target.is_some() && s.target.as_deref() != Some("mixlink.channel.e2e-b"))
     })
     .await;
     let metadata = stream_metadata(silent.node_id);
@@ -202,37 +202,37 @@ async fn routes_moves_and_mixes_through_real_pipewire() {
     );
 
     // A link of ours destroyed externally gets recreated.
-    support::pw_unlink("wavelink.mixer:stream_FL", "wavelink.stream_mix:input_FL");
+    support::pw_unlink("mixlink.mixer:stream_FL", "mixlink.stream_mix:input_FL");
     // Removing a channel destroys its node and its links while the loop runs; a
     // destroy must not provoke a core error that ends the session.
     backend.send(BackendCommand::RemoveChannel { id: "e2e-b".into() });
     backend.send(BackendCommand::EnsureChannel {
         id: "e2e-c".into(),
         slot: 2,
-        description: "WaveLink e2e-c".into(),
+        description: "MixLink e2e-c".into(),
         source: ChannelSource::Virtual,
     });
     tokio::time::sleep(Duration::from_millis(500)).await;
     let events = drain_checked(&mut rx);
     assert!(
-        !events.iter().any(|e| matches!(e, BackendEvent::StreamUpdated(s) if s.node_id == stream.node_id && s.target.as_deref() == Some("wavelink.channel.e2e-c"))),
+        !events.iter().any(|e| matches!(e, BackendEvent::StreamUpdated(s) if s.node_id == stream.node_id && s.target.as_deref() == Some("mixlink.channel.e2e-c"))),
         "stale deferred move fired"
     );
     let nodes = pw_nodes();
     assert!(
-        !nodes.contains("wavelink.channel.e2e-b"),
+        !nodes.contains("mixlink.channel.e2e-b"),
         "channel b still exists:\n{nodes}"
     );
     assert!(
-        nodes.contains("wavelink.channel.e2e-a"),
+        nodes.contains("mixlink.channel.e2e-a"),
         "channel a vanished:\n{nodes}"
     );
     assert!(
-        nodes.contains("wavelink.channel.e2e-c"),
+        nodes.contains("mixlink.channel.e2e-c"),
         "channel c missing:\n{nodes}"
     );
     assert!(
-        has_link("wavelink.mixer:stream_FL", "wavelink.stream_mix:input_FL"),
+        has_link("mixlink.mixer:stream_FL", "mixlink.stream_mix:input_FL"),
         "removed link not recreated"
     );
 

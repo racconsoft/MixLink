@@ -1,7 +1,7 @@
 //! Lock-free exchange of targets (control → RT) and peaks (RT → control).
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering::Relaxed};
 
-use wavelink_core::model::MAX_CHANNELS;
+use mixlink_core::model::MAX_CHANNELS;
 
 use crate::mixer::dsp::{Gains, Peaks, Targets};
 

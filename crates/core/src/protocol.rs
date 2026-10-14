@@ -1,4 +1,4 @@
-//! Line-based JSON protocol between wavelinkd and its clients.
+//! Line-based JSON protocol between mixlinkd and its clients.
 use std::collections::BTreeMap;
 use std::fmt;
 

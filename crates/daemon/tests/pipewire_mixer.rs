@@ -3,11 +3,11 @@ mod support;
 use std::sync::Arc;
 use std::time::Duration;
 
+use mixlinkd::mixer::dsp::{Gains, Targets};
+use mixlinkd::mixer::shared::SharedParams;
+use mixlinkd::pw::mixer_node::MixerNode;
+use mixlinkd::pw::nodes::create_null_sink;
 use pipewire as pw;
-use wavelinkd::mixer::dsp::{Gains, Targets};
-use wavelinkd::mixer::shared::SharedParams;
-use wavelinkd::pw::mixer_node::MixerNode;
-use wavelinkd::pw::nodes::create_null_sink;
 
 #[test]
 #[ignore = "needs a running PipeWire"]

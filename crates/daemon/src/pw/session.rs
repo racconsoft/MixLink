@@ -6,6 +6,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use mixlink_core::model::{ChannelId, Device, channel_node_name};
 use pipewire as pw;
 use pw::properties::properties;
 use pw::registry::GlobalObject;
@@ -13,7 +14,6 @@ use pw::spa::utils::dict::DictRef;
 use pw::spa::utils::result::AsyncSeq;
 use pw::types::ObjectType;
 use tokio::sync::mpsc::UnboundedSender;
-use wavelink_core::model::{ChannelId, Device, channel_node_name};
 
 use super::graph::{
     self, ChannelLink, Graph, LinkPlan, MIXER_NODE, Removed, STREAM_MIX_NODE, SourceKind,
@@ -189,7 +189,7 @@ pub fn run_session(
     let stream_mix = match create_null_sink(
         &core,
         STREAM_MIX_NODE,
-        "WaveLink Stream Mix",
+        "MixLink Stream Mix",
         "Audio/Source/Virtual",
     ) {
         Ok(node) => node,

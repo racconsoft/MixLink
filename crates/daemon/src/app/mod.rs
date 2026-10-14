@@ -1,13 +1,13 @@
 //! Central state machine: owns the State, applies commands, drives the backend.
-use serde::Serialize;
-use serde_json::Value;
-use wavelink_core::model::{
+use mixlink_core::model::{
     ActiveApp, Channel, ChannelId, ChannelKind, Config, Device, DeviceKind, MAX_CHANNELS,
     NODE_PREFIX, State, channel_id_from_node_name, channel_node_name,
 };
-use wavelink_core::protocol::{Command, ErrorBody, Event};
-use wavelink_core::resolve::{Candidate, resolve};
-use wavelink_core::rules;
+use mixlink_core::protocol::{Command, ErrorBody, Event};
+use mixlink_core::resolve::{Candidate, resolve};
+use mixlink_core::rules;
+use serde::Serialize;
+use serde_json::Value;
 
 use crate::backend::{AudioBackend, BackendCommand, BackendEvent, ChannelSource, StreamInfo};
 use crate::mixer::dsp::Peaks;
@@ -395,7 +395,7 @@ impl<B: AudioBackend> App<B> {
         Some(BackendCommand::EnsureChannel {
             id: id.to_owned(),
             slot,
-            description: format!("WaveLink {}", channel.name),
+            description: format!("MixLink {}", channel.name),
             source,
         })
     }
@@ -433,7 +433,7 @@ mod tests {
     use super::*;
     use crate::backend::fake::FakeBackend;
     use crate::mixer::dsp::Peaks;
-    use wavelink_core::model::{Channel, ChannelKind, DeviceKind};
+    use mixlink_core::model::{Channel, ChannelKind, DeviceKind};
 
     #[test]
     fn ready_resyncs_everything() {
@@ -447,7 +447,7 @@ mod tests {
             BackendCommand::EnsureChannel {
                 id: "system".into(),
                 slot: 0,
-                description: "WaveLink System".into(),
+                description: "MixLink System".into(),
                 source: ChannelSource::Virtual
             }
         );
@@ -461,7 +461,7 @@ mod tests {
         );
         assert_eq!(
             cmds[5],
-            BackendCommand::SetDefaultSink(Some("wavelink.channel.system".into()))
+            BackendCommand::SetDefaultSink(Some("mixlink.channel.system".into()))
         );
         assert_eq!(
             app.state().config.mixes.monitor.output_device.as_deref(),
@@ -479,7 +479,7 @@ mod tests {
             DeviceKind::Sink,
         )));
         app.on_backend_event(BackendEvent::Ready {
-            previous_default_sink: Some("wavelink.channel.system".into()),
+            previous_default_sink: Some("mixlink.channel.system".into()),
         });
         assert_eq!(
             app.state().config.mixes.monitor.output_device.as_deref(),
@@ -498,16 +498,16 @@ mod tests {
         app.on_backend_event(BackendEvent::StreamUpdated(stream(
             40,
             "spotify",
-            Some("wavelink.channel.system"),
+            Some("mixlink.channel.system"),
         )));
         assert_eq!(
             moves(&fake.take()),
-            vec![(40, Some("wavelink.channel.music".into()))]
+            vec![(40, Some("mixlink.channel.music".into()))]
         );
         app.on_backend_event(BackendEvent::StreamUpdated(stream(
             40,
             "spotify",
-            Some("wavelink.channel.system"),
+            Some("mixlink.channel.system"),
         )));
         assert!(
             moves(&fake.take()).is_empty(),
@@ -527,7 +527,7 @@ mod tests {
         app.on_backend_event(BackendEvent::StreamUpdated(stream(
             42,
             "spotify",
-            Some("wavelink.channel.music"),
+            Some("mixlink.channel.music"),
         )));
         assert!(moves(&fake.take()).is_empty());
         assert_eq!(app.state().apps.len(), 2);
@@ -561,7 +561,7 @@ mod tests {
         assert!(cmds.contains(&BackendCommand::EnsureChannel {
             id: "mic".into(),
             slot: 3,
-            description: "WaveLink Wave XLR".into(),
+            description: "MixLink Wave XLR".into(),
             source: ChannelSource::Input {
                 source: name.into()
             },
@@ -623,7 +623,7 @@ mod tests {
             previous_default_sink: Some("alsa_output.speakers".into()),
         });
         app.handle(Command::SetMix {
-            mix: wavelink_core::model::MixKind::Monitor,
+            mix: mixlink_core::model::MixKind::Monitor,
             volume: None,
             delta: None,
             muted: None,

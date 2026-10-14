@@ -1,4 +1,4 @@
-//! wavelinkd: the WaveLink Linux mixer daemon.
+//! mixlinkd: the MixLink mixer daemon.
 pub mod actor;
 pub mod app;
 pub mod backend;

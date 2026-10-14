@@ -3,15 +3,15 @@ mod format;
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand, ValueEnum};
-use wavelink_core::client::Client;
-use wavelink_core::model::{Channel, Device, Mix, MixKind, MixTarget, State};
-use wavelink_core::paths;
-use wavelink_core::protocol::Command;
+use mixlink_core::client::Client;
+use mixlink_core::model::{Channel, Device, Mix, MixKind, MixTarget, State};
+use mixlink_core::paths;
+use mixlink_core::protocol::Command;
 
 use format::{LevelArg, MixLevelArg};
 
 #[derive(Parser)]
-#[command(name = "wavelink", version, about = "Control the WaveLink Linux mixer")]
+#[command(name = "mixlink", version, about = "Control the MixLink mixer")]
 struct Cli {
     /// Print the raw JSON result
     #[arg(long, global = true)]
@@ -98,7 +98,7 @@ fn main() -> ExitCode {
     match run(&cli) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("wavelink: {e}");
+            eprintln!("mixlink: {e}");
             ExitCode::FAILURE
         }
     }
@@ -163,7 +163,7 @@ fn run(cli: &Cli) -> Result<(), String> {
 }
 
 fn from_value<T: serde::de::DeserializeOwned>(value: serde_json::Value) -> Result<T, String> {
-    serde_json::from_value(value).map_err(|e| format!("unexpected answer from wavelinkd: {e}"))
+    serde_json::from_value(value).map_err(|e| format!("unexpected answer from mixlinkd: {e}"))
 }
 
 fn print_json(value: &serde_json::Value) -> Result<(), String> {
@@ -262,10 +262,10 @@ fn to_command(cmd: &Cmd) -> Result<Command, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wavelink_core::model::Config;
+    use mixlink_core::model::Config;
 
     fn parse(args: &[&str]) -> Result<Plan, String> {
-        let cli = Cli::try_parse_from(std::iter::once("wavelink").chain(args.iter().copied()))
+        let cli = Cli::try_parse_from(std::iter::once("mixlink").chain(args.iter().copied()))
             .map_err(|e| e.to_string())?;
         plan(&cli.command)
     }

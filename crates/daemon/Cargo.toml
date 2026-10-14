@@ -1,18 +1,18 @@
 [package]
-name = "wavelinkd"
+name = "mixlinkd"
 version = "0.1.0"
 edition = "2024"
 
 [lib]
-name = "wavelinkd"
+name = "mixlinkd"
 path = "src/lib.rs"
 
 [[bin]]
-name = "wavelinkd"
+name = "mixlinkd"
 path = "src/main.rs"
 
 [dependencies]
-wavelink-core = { path = "../core" }
+mixlink-core = { path = "../core" }
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

@@ -1,9 +1,9 @@
 //! Volume, mute, link, mix, listen, fallback and settings commands.
+use mixlink_core::model::{DeviceKind, MixKind, MixTarget};
+use mixlink_core::protocol::ErrorBody;
+use mixlink_core::resolve::{Candidate, resolve};
+use mixlink_core::volume;
 use serde_json::json;
-use wavelink_core::model::{DeviceKind, MixKind, MixTarget};
-use wavelink_core::protocol::ErrorBody;
-use wavelink_core::resolve::{Candidate, resolve};
-use wavelink_core::volume;
 
 use super::{App, CmdResult, to_value};
 use crate::backend::{AudioBackend, BackendCommand};
@@ -208,8 +208,8 @@ impl<B: AudioBackend> App<B> {
 #[cfg(test)]
 mod tests {
     use super::super::test_support::*;
-    use wavelink_core::model::{DeviceKind, MixKind, MixTarget};
-    use wavelink_core::protocol::{Command, ErrorCode};
+    use mixlink_core::model::{DeviceKind, MixKind, MixTarget};
+    use mixlink_core::protocol::{Command, ErrorCode};
 
     use crate::backend::{BackendCommand, BackendEvent};
 
@@ -394,7 +394,7 @@ mod tests {
         .unwrap();
         assert_eq!(app.state().config.fallback_channel, "music");
         assert!(fake.take().contains(&BackendCommand::SetDefaultSink(Some(
-            "wavelink.channel.music".into()
+            "mixlink.channel.music".into()
         ))));
     }
 

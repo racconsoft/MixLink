@@ -2,11 +2,11 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use mixlink_core::model::Config;
+use mixlink_core::protocol::{Command, ErrorBody, to_line};
 use serde_json::Value;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::time::{Instant, sleep_until};
-use wavelink_core::model::Config;
-use wavelink_core::protocol::{Command, ErrorBody, to_line};
 
 use crate::app::App;
 use crate::backend::{AudioBackend, BackendEvent};
@@ -83,7 +83,7 @@ mod tests {
     use super::*;
     use std::sync::Mutex;
 
-    use wavelink_core::model::{Channel, MixKind, MixTarget};
+    use mixlink_core::model::{Channel, MixKind, MixTarget};
 
     use crate::backend::BackendCommand;
     use crate::backend::fake::FakeBackend;

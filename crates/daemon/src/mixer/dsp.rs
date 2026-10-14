@@ -1,5 +1,5 @@
 //! Pure mixing function: no allocation, no locks – safe for the real-time thread.
-use wavelink_core::model::MAX_CHANNELS;
+use mixlink_core::model::MAX_CHANNELS;
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Gains {

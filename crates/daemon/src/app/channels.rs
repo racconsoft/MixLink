@@ -1,9 +1,9 @@
 //! Channel management and app assignment commands.
+use mixlink_core::model::{Channel, ChannelId, MAX_CHANNELS, channel_node_name};
+use mixlink_core::protocol::{ErrorBody, ErrorCode};
+use mixlink_core::resolve::{Candidate, ResolveError, resolve};
+use mixlink_core::rules;
 use serde_json::json;
-use wavelink_core::model::{Channel, ChannelId, MAX_CHANNELS, channel_node_name};
-use wavelink_core::protocol::{ErrorBody, ErrorCode};
-use wavelink_core::resolve::{Candidate, ResolveError, resolve};
-use wavelink_core::rules;
 
 use super::{App, CmdResult, to_value};
 use crate::backend::{AudioBackend, BackendCommand};
@@ -264,8 +264,8 @@ fn validate_channel_name(name: &str) -> Result<&str, ErrorBody> {
 mod tests {
     use super::super::App;
     use super::super::test_support::*;
-    use wavelink_core::model::{Channel, ChannelKind, MAX_CHANNELS};
-    use wavelink_core::protocol::{Command, ErrorCode};
+    use mixlink_core::model::{Channel, ChannelKind, MAX_CHANNELS};
+    use mixlink_core::protocol::{Command, ErrorCode};
 
     use crate::backend::fake::FakeBackend;
     use crate::backend::{BackendCommand, BackendEvent, ChannelSource};
@@ -286,7 +286,7 @@ mod tests {
         assert!(fake.take().contains(&BackendCommand::EnsureChannel {
             id: "podcast".into(),
             slot: 3,
-            description: "WaveLink Podcast".into(),
+            description: "MixLink Podcast".into(),
             source: ChannelSource::Virtual,
         }));
         assert_eq!(app.handle(create("Podcast")).unwrap()["id"], "podcast-2");
@@ -314,7 +314,7 @@ mod tests {
         app.on_backend_event(BackendEvent::StreamUpdated(stream(
             40,
             "spotify",
-            Some("wavelink.channel.music"),
+            Some("mixlink.channel.music"),
         )));
         fake.take();
         app.handle(Command::RenameChannel {
@@ -326,12 +326,12 @@ mod tests {
         assert!(cmds.contains(&BackendCommand::EnsureChannel {
             id: "music".into(),
             slot: 1,
-            description: "WaveLink Tunes".into(),
+            description: "MixLink Tunes".into(),
             source: ChannelSource::Virtual,
         }));
         assert_eq!(
             moves(&cmds),
-            vec![(40, Some("wavelink.channel.music".into()))]
+            vec![(40, Some("mixlink.channel.music".into()))]
         );
         assert_eq!(app.state().config.channel("music").unwrap().name, "Tunes");
     }
@@ -342,7 +342,7 @@ mod tests {
         app.on_backend_event(BackendEvent::StreamUpdated(stream(
             41,
             "firefox",
-            Some("wavelink.channel.system"),
+            Some("mixlink.channel.system"),
         )));
         fake.take();
         app.handle(Command::RenameChannel {
@@ -390,7 +390,7 @@ mod tests {
         app.on_backend_event(BackendEvent::StreamUpdated(stream(
             40,
             "spotify",
-            Some("wavelink.channel.music"),
+            Some("mixlink.channel.music"),
         )));
         fake.take();
         app.handle(Command::DeleteChannel {
@@ -439,7 +439,7 @@ mod tests {
     #[test]
     fn assign_moves_running_streams_and_uses_active_app_names() {
         let (mut app, fake) = ready_app();
-        let mut info = stream(50, "discord", Some("wavelink.channel.system"));
+        let mut info = stream(50, "discord", Some("mixlink.channel.system"));
         info.name = "Discord".into();
         app.on_backend_event(BackendEvent::StreamUpdated(info));
         fake.take();
@@ -450,7 +450,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             moves(&fake.take()),
-            vec![(50, Some("wavelink.channel.voice-chat".into()))]
+            vec![(50, Some("mixlink.channel.voice-chat".into()))]
         );
         assert_eq!(
             app.state().config.channel("voice-chat").unwrap().apps,
@@ -475,9 +475,9 @@ mod tests {
     #[test]
     fn assign_does_not_guess_running_apps() {
         let (mut app, fake) = ready_app();
-        let mut discord = stream(50, "discord", Some("wavelink.channel.system"));
+        let mut discord = stream(50, "discord", Some("mixlink.channel.system"));
         discord.name = "Discord".into();
-        let mut discordance = stream(51, "discordance", Some("wavelink.channel.system"));
+        let mut discordance = stream(51, "discordance", Some("mixlink.channel.system"));
         discordance.name = "Discordance".into();
         app.on_backend_event(BackendEvent::StreamUpdated(discord));
         app.on_backend_event(BackendEvent::StreamUpdated(discordance));
@@ -500,16 +500,16 @@ mod tests {
         .unwrap();
         assert_eq!(
             moves(&fake.take()),
-            vec![(51, Some("wavelink.channel.voice-chat".into()))]
+            vec![(51, Some("mixlink.channel.voice-chat".into()))]
         );
     }
 
     #[test]
     fn assign_rejects_display_names_shared_by_different_apps() {
         let (mut app, fake) = ready_app();
-        let mut a = stream(50, "game-a", Some("wavelink.channel.system"));
+        let mut a = stream(50, "game-a", Some("mixlink.channel.system"));
         a.name = "Game".into();
-        let mut b = stream(51, "game-b", Some("wavelink.channel.system"));
+        let mut b = stream(51, "game-b", Some("mixlink.channel.system"));
         b.name = "Game".into();
         app.on_backend_event(BackendEvent::StreamUpdated(a));
         app.on_backend_event(BackendEvent::StreamUpdated(b));
@@ -538,12 +538,12 @@ mod tests {
         app.on_backend_event(BackendEvent::StreamUpdated(stream(
             40,
             "spotify",
-            Some("wavelink.channel.music"),
+            Some("mixlink.channel.music"),
         )));
         app.on_backend_event(BackendEvent::StreamUpdated(stream(
             41,
             "spotify",
-            Some("wavelink.channel.system"),
+            Some("mixlink.channel.system"),
         )));
         fake.take();
         app.handle(Command::AssignApp {
@@ -553,7 +553,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             moves(&fake.take()),
-            vec![(41, Some("wavelink.channel.music".into()))],
+            vec![(41, Some("mixlink.channel.music".into()))],
             "only the stream not yet in Music is moved"
         );
     }
@@ -573,7 +573,7 @@ mod tests {
         app.on_backend_event(BackendEvent::StreamUpdated(stream(
             40,
             "firefox",
-            Some("wavelink.channel.system"),
+            Some("mixlink.channel.system"),
         )));
         fake.take();
         let err = app
@@ -631,7 +631,7 @@ mod tests {
         app.on_backend_event(BackendEvent::StreamUpdated(stream(
             40,
             "spotify",
-            Some("wavelink.channel.music"),
+            Some("mixlink.channel.music"),
         )));
         fake.take();
         let err = app

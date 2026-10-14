@@ -1,4 +1,4 @@
-//! Blocking client for the wavelinkd socket (used by the CLI).
+//! Blocking client for the mixlinkd socket (used by the CLI).
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
@@ -10,7 +10,7 @@ use crate::protocol::{Command, ErrorBody, ErrorCode, Event, Request, ServerMessa
 
 #[derive(Debug, Error)]
 pub enum ClientError {
-    #[error("cannot reach wavelinkd at {path}: {source}")]
+    #[error("cannot reach mixlinkd at {path}: {source}")]
     Connect {
         path: PathBuf,
         #[source]
@@ -18,7 +18,7 @@ pub enum ClientError {
     },
     #[error("connection error: {0}")]
     Io(#[from] std::io::Error),
-    #[error("invalid message from wavelinkd: {0}")]
+    #[error("invalid message from mixlinkd: {0}")]
     Protocol(String),
     #[error("{0}")]
     Daemon(ErrorBody),
@@ -80,7 +80,7 @@ impl Client {
         if self.reader.read_line(&mut line)? == 0 {
             return Err(ClientError::Io(std::io::Error::new(
                 std::io::ErrorKind::UnexpectedEof,
-                "wavelinkd closed the connection",
+                "mixlinkd closed the connection",
             )));
         }
         serde_json::from_str(&line).map_err(|e| ClientError::Protocol(e.to_string()))

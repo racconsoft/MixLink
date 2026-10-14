@@ -1,4 +1,4 @@
-use wavelink_core::model::{Channel, Config, Device, DeviceKind, MixKind};
+use mixlink_core::model::{Channel, Config, Device, DeviceKind, MixKind};
 
 use super::App;
 use crate::backend::fake::FakeBackend;

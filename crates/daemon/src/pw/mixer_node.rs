@@ -4,10 +4,10 @@ use std::ffi::{CString, c_void};
 use std::ptr;
 use std::sync::Arc;
 
+use mixlink_core::model::MAX_CHANNELS;
 use pipewire as pw;
 use pipewire_sys as pws;
 use pw::properties::properties;
-use wavelink_core::model::MAX_CHANNELS;
 
 use super::graph::{MONITOR_OUT, STREAM_OUT, mixer_input_port};
 use crate::mixer::dsp::{self, Block, DspState, Peaks};
@@ -70,7 +70,7 @@ impl MixerNode {
             "media.category" => "Filter",
             "media.role" => "DSP",
             "node.name" => name,
-            "node.description" => "WaveLink Mixer",
+            "node.description" => "MixLink Mixer",
             "node.always-process" => "true",
         };
         let cname = CString::new(name).map_err(|e| e.to_string())?;

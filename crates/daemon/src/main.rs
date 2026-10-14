@@ -1,14 +1,14 @@
 use std::time::Duration;
 
 use anyhow::Context;
+use mixlink_core::paths;
+use mixlinkd::actor::{ActorChannels, ActorMsg, run_actor};
+use mixlinkd::app::App;
+use mixlinkd::config::{self, LoadOutcome};
+use mixlinkd::ipc;
+use mixlinkd::pw::PipeWireBackend;
 use tokio::sync::{broadcast, mpsc};
 use tracing_subscriber::EnvFilter;
-use wavelink_core::paths;
-use wavelinkd::actor::{ActorChannels, ActorMsg, run_actor};
-use wavelinkd::app::App;
-use wavelinkd::config::{self, LoadOutcome};
-use wavelinkd::ipc;
-use wavelinkd::pw::PipeWireBackend;
 
 const SAVE_DELAY: Duration = Duration::from_millis(500);
 
@@ -54,7 +54,7 @@ async fn main() -> anyhow::Result<()> {
     let (broadcast_tx, _) = broadcast::channel(256);
     let server = tokio::spawn(ipc::serve(listener, msg_tx.clone(), broadcast_tx.clone()));
     tokio::spawn(shutdown_on_signal(msg_tx));
-    tracing::info!("wavelinkd listening on {}", socket.display());
+    tracing::info!("mixlinkd listening on {}", socket.display());
 
     let save_path = config_path.clone();
     run_actor(

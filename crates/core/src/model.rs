@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 
 pub const MAX_CHANNELS: usize = 16;
 /// Every PipeWire node the daemon owns starts with this prefix.
-pub const NODE_PREFIX: &str = "wavelink.";
-const CHANNEL_NODE_PREFIX: &str = "wavelink.channel.";
+pub const NODE_PREFIX: &str = "mixlink.";
+const CHANNEL_NODE_PREFIX: &str = "mixlink.channel.";
 
 pub type ChannelId = String;
 
@@ -354,9 +354,9 @@ enabled = true
 
     #[test]
     fn node_names_roundtrip() {
-        assert_eq!(channel_node_name("music"), "wavelink.channel.music");
+        assert_eq!(channel_node_name("music"), "mixlink.channel.music");
         assert_eq!(
-            channel_id_from_node_name("wavelink.channel.music"),
+            channel_id_from_node_name("mixlink.channel.music"),
             Some("music")
         );
         assert_eq!(channel_id_from_node_name("alsa_output.foo"), None);

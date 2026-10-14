@@ -1,4 +1,4 @@
-//! Shared types and logic for wavelinkd, the CLI, the GUI and the MCP server.
+//! Shared types and logic for mixlinkd, the CLI, the GUI and the MCP server.
 pub mod client;
 pub mod model;
 pub mod paths;

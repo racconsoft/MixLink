@@ -1,15 +1,15 @@
 use std::time::Duration;
 
+use mixlink_core::model::{Channel, Config, MixKind};
+use mixlink_core::protocol::{Event, Response};
+use mixlinkd::actor::{ActorChannels, run_actor};
+use mixlinkd::app::App;
+use mixlinkd::backend::fake::FakeBackend;
+use mixlinkd::ipc::{bind_socket, serve};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
 use tokio::net::UnixStream;
 use tokio::net::unix::OwnedReadHalf;
 use tokio::sync::{broadcast, mpsc};
-use wavelink_core::model::{Channel, Config, MixKind};
-use wavelink_core::protocol::{Event, Response};
-use wavelinkd::actor::{ActorChannels, run_actor};
-use wavelinkd::app::App;
-use wavelinkd::backend::fake::FakeBackend;
-use wavelinkd::ipc::{bind_socket, serve};
 
 fn config() -> Config {
     Config {
@@ -130,7 +130,7 @@ async fn invalid_request_echoes_recovered_id() {
     assert_eq!(resp.id, 42);
     assert_eq!(
         resp.error.unwrap().code,
-        wavelink_core::protocol::ErrorCode::InvalidArgument
+        mixlink_core::protocol::ErrorCode::InvalidArgument
     );
 }
 

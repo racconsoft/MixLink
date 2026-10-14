@@ -3,10 +3,10 @@ use std::io;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
+use mixlink_core::protocol::{Command, ErrorBody, ErrorCode, Request, Response, to_line};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::{broadcast, mpsc, oneshot};
-use wavelink_core::protocol::{Command, ErrorBody, ErrorCode, Request, Response, to_line};
 
 use crate::actor::{ActorMsg, Broadcast};
 
@@ -16,7 +16,7 @@ pub fn bind_socket(path: &Path) -> io::Result<UnixListener> {
         if std::os::unix::net::UnixStream::connect(path).is_ok() {
             return Err(io::Error::new(
                 io::ErrorKind::AddrInUse,
-                format!("wavelinkd is already running ({})", path.display()),
+                format!("mixlinkd is already running ({})", path.display()),
             ));
         }
         std::fs::remove_file(path)?;
@@ -109,7 +109,7 @@ async fn next_broadcast(
 }
 
 async fn dispatch(actor: &mpsc::Sender<ActorMsg>, request: Request) -> Response {
-    let shutting_down = || ErrorBody::new(ErrorCode::Internal, "wavelinkd is shutting down");
+    let shutting_down = || ErrorBody::new(ErrorCode::Internal, "mixlinkd is shutting down");
     let (reply, rx) = oneshot::channel();
     if actor
         .send(ActorMsg::Command {

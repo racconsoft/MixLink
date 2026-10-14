@@ -1,7 +1,7 @@
 //! The boundary between the state machine and the audio system.
 pub mod fake;
 
-use wavelink_core::model::{ChannelId, Device};
+use mixlink_core::model::{ChannelId, Device};
 
 use crate::mixer::dsp::{Peaks, Targets};
 

@@ -1,10 +1,10 @@
 //! Pure model of the PipeWire graph and the links the daemon wants.
 use std::collections::HashMap;
 
-use wavelink_core::model::{DeviceKind, NODE_PREFIX};
+use mixlink_core::model::{DeviceKind, NODE_PREFIX};
 
-pub const MIXER_NODE: &str = "wavelink.mixer";
-pub const STREAM_MIX_NODE: &str = "wavelink.stream_mix";
+pub const MIXER_NODE: &str = "mixlink.mixer";
+pub const STREAM_MIX_NODE: &str = "mixlink.stream_mix";
 pub const MONITOR_OUT: [&str; 2] = ["monitor_FL", "monitor_FR"];
 pub const STREAM_OUT: [&str; 2] = ["stream_FL", "stream_FR"];
 
@@ -335,7 +335,7 @@ mod tests {
         for (i, name) in MONITOR_OUT.iter().chain(STREAM_OUT.iter()).enumerate() {
             g.add_port(port(110 + i as u32, 10, name, Direction::Out, false));
         }
-        g.add_node(node(20, "wavelink.channel.music", "Audio/Sink"));
+        g.add_node(node(20, "mixlink.channel.music", "Audio/Sink"));
         g.add_port(port(200, 20, "playback_FL", Direction::In, false));
         g.add_port(port(201, 20, "playback_FR", Direction::In, false));
         g.add_port(port(202, 20, "monitor_FL", Direction::Out, true));
@@ -363,7 +363,7 @@ mod tests {
             channels: vec![
                 ChannelLink {
                     slot: 0,
-                    node: "wavelink.channel.music",
+                    node: "mixlink.channel.music",
                     kind: SourceKind::SinkMonitor,
                 },
                 ChannelLink {
@@ -492,7 +492,7 @@ mod tests {
             input_node: 20,
             input_port: 200,
         });
-        assert_eq!(g.link_target(60), Some("wavelink.channel.music"));
+        assert_eq!(g.link_target(60), Some("mixlink.channel.music"));
         assert!(g.has_link(600, 200));
         assert!(matches!(g.remove(70), Removed::Link(_)));
         assert_eq!(g.link_target(60), None);
@@ -503,8 +503,8 @@ mod tests {
     #[test]
     fn forget_node_named_hides_it_immediately() {
         let mut g = graph();
-        g.forget_node_named("wavelink.channel.music");
-        assert!(g.node_by_name("wavelink.channel.music").is_none());
+        g.forget_node_named("mixlink.channel.music");
+        assert!(g.node_by_name("mixlink.channel.music").is_none());
         assert!(matches!(g.remove(20), Removed::Unknown));
     }
 
@@ -546,7 +546,7 @@ mod tests {
         let ours = parse_node(
             5,
             get(&[
-                ("node.name", "wavelink.channel.music"),
+                ("node.name", "mixlink.channel.music"),
                 ("media.class", "Audio/Sink"),
             ]),
         )
