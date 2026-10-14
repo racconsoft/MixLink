@@ -1,0 +1,520 @@
+//! One connection to PipeWire: tracks the graph, owns our nodes and links,
+//! executes BackendCommands and reports BackendEvents.
+use std::cell::{Cell, RefCell};
+use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
+use std::sync::Arc;
+use std::time::Duration;
+
+use pipewire as pw;
+use pw::properties::properties;
+use pw::registry::GlobalObject;
+use pw::spa::utils::dict::DictRef;
+use pw::spa::utils::result::AsyncSeq;
+use pw::types::ObjectType;
+use tokio::sync::mpsc::UnboundedSender;
+use wavelink_core::model::{channel_node_name, ChannelId, Device};
+
+use super::graph::{self, ChannelLink, Graph, LinkPlan, Removed, SourceKind, MIXER_NODE, STREAM_MIX_NODE};
+use super::identity::{app_identity, read_proc_comm};
+use super::mixer_node::MixerNode;
+use super::nodes::create_null_sink;
+use crate::backend::{BackendCommand, BackendEvent, ChannelSource, StreamInfo};
+use crate::mixer::shared::SharedParams;
+
+pub enum SessionEnd {
+    Shutdown,
+    Disconnected,
+    ConnectFailed(String),
+}
+
+const DEFAULT_SINK_KEY: &str = "default.configured.audio.sink";
+const METER_INTERVAL: Duration = Duration::from_millis(33);
+
+struct ChannelEntry {
+    slot: usize,
+    description: String,
+    source: ChannelSource,
+    node: Option<pw::node::Node>,
+}
+
+struct StreamEntry {
+    _proxy: pw::node::Node,
+    _listener: pw::node::NodeListener,
+    info: Option<StreamInfo>,
+}
+
+struct Session {
+    mainloop: pw::main_loop::MainLoopRc,
+    core: pw::core::CoreRc,
+    registry: pw::registry::RegistryRc,
+    events: UnboundedSender<BackendEvent>,
+    shared: Arc<SharedParams>,
+    graph: Graph,
+    channels: HashMap<ChannelId, ChannelEntry>,
+    monitor_output: Option<String>,
+    links: HashMap<(u32, u32), pw::link::Link>,
+    metadata: Option<pw::metadata::Metadata>,
+    metadata_listener: Option<pw::metadata::MetadataListener>,
+    configured_default_sink: Option<String>,
+    streams: HashMap<u32, StreamEntry>,
+    pending_moves: HashMap<u32, String>,
+    last_moves: HashMap<u32, String>,
+    shutdown_seq: Option<AsyncSeq>,
+    end: Option<SessionEnd>,
+}
+
+pub fn run_session(
+    commands: pw::channel::Receiver<BackendCommand>,
+    events: &UnboundedSender<BackendEvent>,
+    shared: &Arc<SharedParams>,
+) -> (pw::channel::Receiver<BackendCommand>, SessionEnd) {
+    macro_rules! try_connect {
+        ($expr:expr) => {
+            match $expr {
+                Ok(value) => value,
+                Err(e) => return (commands, SessionEnd::ConnectFailed(e.to_string())),
+            }
+        };
+    }
+    let mainloop = try_connect!(pw::main_loop::MainLoopRc::new(None));
+    let context = try_connect!(pw::context::ContextRc::new(&mainloop, None));
+    let core = try_connect!(context.connect_rc(None));
+    let registry = try_connect!(core.get_registry_rc());
+
+    let session = Rc::new(RefCell::new(Session {
+        mainloop: mainloop.clone(),
+        core: core.clone(),
+        registry: registry.clone(),
+        events: events.clone(),
+        shared: shared.clone(),
+        graph: Graph::default(),
+        channels: HashMap::new(),
+        monitor_output: None,
+        links: HashMap::new(),
+        metadata: None,
+        metadata_listener: None,
+        configured_default_sink: None,
+        streams: HashMap::new(),
+        pending_moves: HashMap::new(),
+        last_moves: HashMap::new(),
+        shutdown_seq: None,
+        end: None,
+    }));
+
+    let _core_listener = core
+        .add_listener_local()
+        .error({
+            let weak = Rc::downgrade(&session);
+            move |id, _seq, res, message| {
+                tracing::warn!("PipeWire error on object {id}: {res} {message}");
+                if id == pw::core::PW_ID_CORE
+                    && let Some(s) = weak.upgrade()
+                {
+                        let mut s = s.borrow_mut();
+                        s.end.get_or_insert(SessionEnd::Disconnected);
+                        s.mainloop.quit();
+                    }
+            }
+        })
+        .done({
+            let weak = Rc::downgrade(&session);
+            move |id, seq| {
+                let Some(s) = weak.upgrade() else { return };
+                let mut s = s.borrow_mut();
+                if id == pw::core::PW_ID_CORE && s.shutdown_seq == Some(seq) {
+                    s.end = Some(SessionEnd::Shutdown);
+                    s.mainloop.quit();
+                }
+            }
+        })
+        .register();
+
+    let _registry_listener = registry
+        .add_listener_local()
+        .global({
+            let weak = Rc::downgrade(&session);
+            move |global| {
+                if let Some(s) = weak.upgrade() {
+                    Session::on_global(&s, global);
+                }
+            }
+        })
+        .global_remove({
+            let weak = Rc::downgrade(&session);
+            move |id| {
+                if let Some(s) = weak.upgrade() {
+                    s.borrow_mut().on_global_remove(id);
+                }
+            }
+        })
+        .register();
+
+    // 1st roundtrip: all globals (metadata gets bound); 2nd: metadata property values.
+    for _ in 0..2 {
+        if !roundtrip(&mainloop, &core, &session) {
+            let end = session.borrow_mut().end.take().unwrap_or(SessionEnd::Disconnected);
+            return (commands, end);
+        }
+    }
+
+    let _mixer = match MixerNode::new(&core, MIXER_NODE, shared.clone()) {
+        Ok(mixer) => mixer,
+        Err(e) => return (commands, SessionEnd::ConnectFailed(e)),
+    };
+    let stream_mix = match create_null_sink(&core, STREAM_MIX_NODE, "WaveLink Stream Mix", "Audio/Source/Virtual") {
+        Ok(node) => node,
+        Err(e) => return (commands, SessionEnd::ConnectFailed(e.to_string())),
+    };
+    let previous = session.borrow().configured_default_sink.clone();
+    let _ = events.send(BackendEvent::Ready { previous_default_sink: previous });
+
+    let attached = commands.attach(mainloop.loop_(), {
+        let weak = Rc::downgrade(&session);
+        move |cmd| {
+            if let Some(s) = weak.upgrade() {
+                s.borrow_mut().on_command(cmd);
+            }
+        }
+    });
+    let meter_timer = mainloop.loop_().add_timer({
+        let shared = shared.clone();
+        let events = events.clone();
+        move |_| {
+            let _ = events.send(BackendEvent::Meters(shared.take_peaks()));
+        }
+    });
+    let _ = meter_timer.update_timer(Some(METER_INTERVAL), Some(METER_INTERVAL));
+
+    mainloop.run();
+
+    drop(meter_timer);
+    let commands = attached.deattach();
+    let end = {
+        let mut s = session.borrow_mut();
+        s.teardown();
+        let _ = core.destroy_object(stream_mix);
+        s.end.take().unwrap_or(SessionEnd::Disconnected)
+    };
+    (commands, end)
+}
+
+/// Runs the loop until the server has processed everything sent so far.
+/// Returns false if the session ended meanwhile.
+fn roundtrip(mainloop: &pw::main_loop::MainLoopRc, core: &pw::core::CoreRc, session: &Rc<RefCell<Session>>) -> bool {
+    let done = Rc::new(Cell::new(false));
+    let Ok(pending) = core.sync(0) else { return false };
+    let _listener = core
+        .add_listener_local()
+        .done({
+            let done = done.clone();
+            let mainloop = mainloop.clone();
+            move |id, seq| {
+                if id == pw::core::PW_ID_CORE && seq == pending {
+                    done.set(true);
+                    mainloop.quit();
+                }
+            }
+        })
+        .register();
+    while !done.get() {
+        mainloop.run();
+        if session.borrow().end.is_some() {
+            return false;
+        }
+    }
+    true
+}
+
+fn parse_default_sink(json: &str) -> Option<String> {
+    serde_json::from_str::<serde_json::Value>(json).ok()?.get("name")?.as_str().map(str::to_owned)
+}
+
+impl Session {
+    fn on_global(this: &Rc<RefCell<Self>>, global: &GlobalObject<&DictRef>) {
+        let Some(props) = global.props else { return };
+        let get = |k: &str| props.get(k).map(str::to_owned);
+        match global.type_ {
+            ObjectType::Node => {
+                let Some(node) = graph::parse_node(global.id, get) else { return };
+                let is_stream = node.is_app_stream();
+                {
+                    let mut s = this.borrow_mut();
+                    if let Some(kind) = node.device_kind() {
+                        let device = Device { name: node.name.clone(), description: node.description.clone(), kind };
+                        let _ = s.events.send(BackendEvent::DeviceAdded(device));
+                    }
+                    let name = node.name.clone();
+                    s.graph.add_node(node);
+                    s.flush_pending_moves(&name);
+                    s.reconcile();
+                }
+                if is_stream {
+                    Self::watch_stream(this, global);
+                }
+            }
+            ObjectType::Port => {
+                if let Some(port) = graph::parse_port(global.id, get) {
+                    let mut s = this.borrow_mut();
+                    s.graph.add_port(port);
+                    s.reconcile();
+                }
+            }
+            ObjectType::Link => {
+                if let Some(link) = graph::parse_link(global.id, get) {
+                    let mut s = this.borrow_mut();
+                    let output_node = link.output_node;
+                    s.graph.add_link(link);
+                    s.refresh_stream(output_node);
+                }
+            }
+            ObjectType::Metadata if props.get("metadata.name") == Some("default") => Self::watch_metadata(this, global),
+            _ => {}
+        }
+    }
+
+    fn watch_stream(this: &Rc<RefCell<Self>>, global: &GlobalObject<&DictRef>) {
+        let id = global.id;
+        let proxy: pw::node::Node = match this.borrow().registry.bind(global) {
+            Ok(proxy) => proxy,
+            Err(e) => {
+                tracing::warn!("binding stream {id} failed: {e}");
+                return;
+            }
+        };
+        let weak = Rc::downgrade(this);
+        let listener = proxy
+            .add_listener_local()
+            .info(move |info| {
+                let Some(session) = weak.upgrade() else { return };
+                let Some(props) = info.props() else { return };
+                let get = |k: &str| props.get(k).map(str::to_owned);
+                if get("node.dont-move").as_deref() == Some("true") {
+                    return;
+                }
+                let app = app_identity(get, read_proc_comm);
+                let name = get("application.name").unwrap_or_else(|| app.clone());
+                let icon = get("application.icon-name");
+                let mut guard = session.borrow_mut();
+                let s = &mut *guard;
+                let target = s.graph.link_target(id).map(str::to_owned);
+                let info = StreamInfo { node_id: id, app, name, icon, target };
+                if let Some(entry) = s.streams.get_mut(&id)
+                    && entry.info.as_ref() != Some(&info)
+                {
+                        entry.info = Some(info.clone());
+                        let _ = s.events.send(BackendEvent::StreamUpdated(info));
+                    }
+            })
+            .register();
+        this.borrow_mut().streams.insert(id, StreamEntry { _proxy: proxy, _listener: listener, info: None });
+    }
+
+    fn watch_metadata(this: &Rc<RefCell<Self>>, global: &GlobalObject<&DictRef>) {
+        let metadata: pw::metadata::Metadata = match this.borrow().registry.bind(global) {
+            Ok(m) => m,
+            Err(e) => {
+                tracing::warn!("binding default metadata failed: {e}");
+                return;
+            }
+        };
+        let weak = Rc::downgrade(this);
+        let listener = metadata
+            .add_listener_local()
+            .property(move |subject, key, _type, value| {
+                if subject == 0 && key == Some(DEFAULT_SINK_KEY)
+                    && let Some(s) = weak.upgrade()
+                {
+                        s.borrow_mut().configured_default_sink = value.and_then(parse_default_sink);
+                    }
+                0
+            })
+            .register();
+        let mut s = this.borrow_mut();
+        s.metadata = Some(metadata);
+        s.metadata_listener = Some(listener);
+    }
+
+    fn on_global_remove(&mut self, id: u32) {
+        match self.graph.remove(id) {
+            Removed::Node(node) => {
+                if node.device_kind().is_some() {
+                    let _ = self.events.send(BackendEvent::DeviceRemoved(node.name));
+                }
+                if self.streams.remove(&id).is_some() {
+                    let _ = self.events.send(BackendEvent::StreamRemoved(id));
+                }
+                self.pending_moves.remove(&id);
+                self.last_moves.remove(&id);
+            }
+            Removed::Port(port) => self.links.retain(|(out, inp), _| *out != port.id && *inp != port.id),
+            Removed::Link(link) => self.refresh_stream(link.output_node),
+            Removed::Unknown => {}
+        }
+    }
+
+    fn refresh_stream(&mut self, node_id: u32) {
+        let target = self.graph.link_target(node_id).map(str::to_owned);
+        if let Some(info) = self.streams.get_mut(&node_id).and_then(|e| e.info.as_mut())
+            && info.target != target
+        {
+                info.target = target;
+                let _ = self.events.send(BackendEvent::StreamUpdated(info.clone()));
+            }
+    }
+
+    fn on_command(&mut self, cmd: BackendCommand) {
+        match cmd {
+            BackendCommand::EnsureChannel { id, slot, description, source } => {
+                self.ensure_channel(id, slot, description, source)
+            }
+            BackendCommand::RemoveChannel { id } => {
+                self.destroy_channel(&id);
+                self.reconcile();
+            }
+            BackendCommand::SetTargets(targets) => self.shared.store_targets(&targets),
+            BackendCommand::SetMonitorOutput(output) => {
+                self.monitor_output = output;
+                self.reconcile();
+            }
+            BackendCommand::SetDefaultSink(name) => self.set_default_sink(name.as_deref()),
+            BackendCommand::MoveStream { node_id, target } => {
+                if self.graph.node_by_name(&target).is_some() {
+                    self.apply_move(node_id, &target);
+                } else {
+                    self.pending_moves.insert(node_id, target);
+                }
+            }
+            BackendCommand::Shutdown => match self.core.sync(0) {
+                Ok(seq) => self.shutdown_seq = Some(seq),
+                Err(_) => {
+                    self.end = Some(SessionEnd::Shutdown);
+                    self.mainloop.quit();
+                }
+            },
+        }
+    }
+
+    fn ensure_channel(&mut self, id: ChannelId, slot: usize, description: String, source: ChannelSource) {
+        if let Some(existing) = self.channels.get(&id)
+            && existing.slot == slot && existing.description == description && existing.source == source
+        {
+                return;
+            }
+        self.destroy_channel(&id);
+        let node = match &source {
+            ChannelSource::Virtual => {
+                match create_null_sink(&self.core, &channel_node_name(&id), &description, "Audio/Sink") {
+                    Ok(node) => Some(node),
+                    Err(e) => {
+                        tracing::error!("creating channel {id} failed: {e}");
+                        None
+                    }
+                }
+            }
+            ChannelSource::Input { .. } => None,
+        };
+        self.channels.insert(id, ChannelEntry { slot, description, source, node });
+        self.reconcile();
+    }
+
+    fn destroy_channel(&mut self, id: &str) {
+        if let Some(entry) = self.channels.remove(id)
+            && let Some(node) = entry.node
+        {
+                self.graph.forget_node_named(&channel_node_name(id));
+                let _ = self.core.destroy_object(node);
+            }
+    }
+
+    fn set_default_sink(&self, name: Option<&str>) {
+        let Some(metadata) = &self.metadata else {
+            tracing::warn!("default metadata not available; cannot set the default sink");
+            return;
+        };
+        let value = name.map(|n| serde_json::json!({ "name": n }).to_string());
+        metadata.set_property(0, DEFAULT_SINK_KEY, value.as_ref().map(|_| "Spa:String:JSON"), value.as_deref());
+    }
+
+    fn apply_move(&mut self, node_id: u32, target: &str) {
+        let Some(metadata) = &self.metadata else { return };
+        if self.last_moves.get(&node_id).map(String::as_str) == Some(target) {
+            // Same value again (e.g. after the target sink was recreated): clear first so
+            // WirePlumber sees a change.
+            metadata.set_property(node_id, "target.object", None, None);
+        }
+        metadata.set_property(node_id, "target.object", None, Some(target));
+        self.last_moves.insert(node_id, target.to_owned());
+    }
+
+    fn flush_pending_moves(&mut self, appeared: &str) {
+        let ready: Vec<u32> =
+            self.pending_moves.iter().filter(|(_, target)| *target == appeared).map(|(id, _)| *id).collect();
+        for node_id in ready {
+            if let Some(target) = self.pending_moves.remove(&node_id) {
+                self.apply_move(node_id, &target);
+            }
+        }
+    }
+
+    fn reconcile(&mut self) {
+        let channel_nodes: Vec<(usize, String, SourceKind)> = self
+            .channels
+            .iter()
+            .map(|(id, entry)| match &entry.source {
+                ChannelSource::Virtual => (entry.slot, channel_node_name(id), SourceKind::SinkMonitor),
+                ChannelSource::Input { source } => (entry.slot, source.clone(), SourceKind::Source),
+            })
+            .collect();
+        let desired: HashSet<(u32, u32)> = {
+            let plan = LinkPlan {
+                mixer: MIXER_NODE,
+                stream_mix: STREAM_MIX_NODE,
+                monitor_output: self.monitor_output.as_deref(),
+                channels: channel_nodes
+                    .iter()
+                    .map(|(slot, node, kind)| ChannelLink { slot: *slot, node, kind: *kind })
+                    .collect(),
+            };
+            self.graph.desired_links(&plan).into_iter().collect()
+        };
+        let stale: Vec<(u32, u32)> = self.links.keys().filter(|k| !desired.contains(k)).copied().collect();
+        for key in stale {
+            if let Some(link) = self.links.remove(&key) {
+                let _ = self.core.destroy_object(link);
+            }
+        }
+        for (out_port, in_port) in desired {
+            if self.links.contains_key(&(out_port, in_port)) || self.graph.has_link(out_port, in_port) {
+                continue;
+            }
+            let (Some(out), Some(inp)) = (self.graph.port(out_port), self.graph.port(in_port)) else { continue };
+            let props = properties! {
+                "link.output.node" => out.node.to_string(),
+                "link.output.port" => out_port.to_string(),
+                "link.input.node" => inp.node.to_string(),
+                "link.input.port" => in_port.to_string(),
+                "object.linger" => "false",
+            };
+            match self.core.create_object::<pw::link::Link>("link-factory", &props) {
+                Ok(link) => {
+                    self.links.insert((out_port, in_port), link);
+                }
+                Err(e) => tracing::warn!("creating link {out_port}->{in_port} failed: {e}"),
+            }
+        }
+    }
+
+    fn teardown(&mut self) {
+        for (_, link) in self.links.drain() {
+            let _ = self.core.destroy_object(link);
+        }
+        let ids: Vec<ChannelId> = self.channels.keys().cloned().collect();
+        for id in ids {
+            self.destroy_channel(&id);
+        }
+        self.streams.clear();
+        self.metadata_listener = None;
+        self.metadata = None;
+    }
+}

@@ -21,4 +21,4 @@ pipewire-sys = "0.10.1"
 
 [dev-dependencies]
 tempfile = "3"
-tokio = { version = "1", features = ["rt", "macros", "net", "io-util", "sync", "time", "signal", "test-util"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "net", "io-util", "sync", "time", "signal", "test-util"] }
