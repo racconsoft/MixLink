@@ -5,7 +5,15 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PREFIX="$HOME/.local"
 BIN="$PREFIX/bin"
+APPS="$PREFIX/share/applications"
 cd "$ROOT"
+
+for tool in cargo pnpm; do
+  if ! command -v "$tool" >/dev/null 2>&1; then
+    echo "error: '$tool' was not found. See README.md, section 'Voraussetzungen' (Rust toolchain, Node.js + pnpm)." >&2
+    exit 1
+  fi
+done
 
 echo "==> Building daemon and CLI"
 cargo install --locked --root "$PREFIX" --path crates/daemon
@@ -17,13 +25,18 @@ install -Dm755 target/release/mixlink-gui "$BIN/mixlink-gui"
 
 echo "==> Installing service, menu entry and icons"
 install -Dm644 packaging/systemd/mixlinkd.service "$HOME/.config/systemd/user/mixlinkd.service"
-sed "s|@BIN@|$BIN|" packaging/desktop/mixlink.desktop > /tmp/mixlink.desktop.$$
-install -Dm644 /tmp/mixlink.desktop.$$ "$PREFIX/share/applications/mixlink.desktop"
-rm -f /tmp/mixlink.desktop.$$
+# The file name matches the Wayland app_id (the Tauri identifier).
+desktop_file="$(mktemp)"
+trap 'rm -f "$desktop_file"' EXIT
+bin_escaped="$(printf '%s' "$BIN" | sed 's/[&|\\]/\\&/g')"
+sed "s|@BIN@|$bin_escaped|" packaging/desktop/dev.mixlink.gui.desktop > "$desktop_file"
+install -Dm644 "$desktop_file" "$APPS/dev.mixlink.gui.desktop"
+rm -f "$APPS/mixlink.desktop" # name used by earlier installs
 install -Dm644 gui/assets/logo.svg "$PREFIX/share/icons/hicolor/scalable/apps/mixlink.svg"
-install -Dm644 gui/src-tauri/icons/32x32.png "$PREFIX/share/icons/hicolor/32x32/apps/mixlink.png"
-install -Dm644 gui/src-tauri/icons/128x128.png "$PREFIX/share/icons/hicolor/128x128/apps/mixlink.png"
-command -v update-desktop-database >/dev/null && update-desktop-database "$PREFIX/share/applications" || true
+for size in 32 48 128 256; do
+  install -Dm644 "gui/src-tauri/icons/${size}x${size}.png" "$PREFIX/share/icons/hicolor/${size}x${size}/apps/mixlink.png"
+done
+command -v update-desktop-database >/dev/null && update-desktop-database "$APPS" || true
 
 echo "==> (Re)starting mixlinkd"
 systemctl --user daemon-reload
