@@ -13,6 +13,8 @@ use crate::backend::{AudioBackend, BackendCommand, BackendEvent, ChannelSource, 
 use crate::mixer::dsp::Peaks;
 use crate::targets::compute_targets;
 
+mod mixing;
+
 pub type CmdResult = Result<Value, ErrorBody>;
 
 const XLR_MARKER: &str = "Elgato_Wave_XLR";
@@ -76,6 +78,15 @@ impl<B: AudioBackend> App<B> {
             Command::Subscribe { .. } => Ok(Value::Null),
             Command::ListApps => Ok(to_value(&self.state.apps)),
             Command::ListDevices => Ok(to_value(&self.state.devices)),
+            Command::SetVolume { channel, mix, value, delta } => self.set_volume(&channel, mix, value, delta),
+            Command::SetMute { channel, mix, muted } => self.set_mute(&channel, mix, muted),
+            Command::SetLink { channel, linked } => self.set_link(&channel, linked),
+            Command::SetMix { mix, volume, delta, muted, output_device } => {
+                self.set_mix(mix, volume, delta, muted, output_device)
+            }
+            Command::SetListen { mix } => self.set_listen(mix),
+            Command::SetFallbackChannel { channel } => self.set_fallback_channel(&channel),
+            Command::SetSettings { auto_xlr_profile } => self.set_settings(auto_xlr_profile),
             other => Err(ErrorBody::new(ErrorCode::Internal, format!("unsupported command: {other:?}"))),
         }
     }
