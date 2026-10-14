@@ -9,5 +9,5 @@
     "types": ["vite/client", "vitest/globals", "@testing-library/jest-dom", "node"],
     "skipLibCheck": true
   },
-  "include": ["src/**/*.ts", "src/**/*.svelte", "e2e/**/*.ts"]
+  "include": ["src/**/*.ts", "src/**/*.svelte", "e2e/**/*.ts", "vitest-setup.ts"]
 }
