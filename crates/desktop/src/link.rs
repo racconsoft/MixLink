@@ -51,8 +51,9 @@ impl DaemonLink {
             }
         };
         loop {
-            if let Ok((client, mut events)) = AsyncClient::connect(&socket).await {
-                match initial_state(&client).await {
+            match AsyncClient::connect(&socket).await {
+                Err(e) => tracing::debug!("could not connect to mixlinkd: {e}"),
+                Ok((client, mut events)) => match initial_state(&client).await {
                     Ok(state) => {
                         sink.state(&state);
                         *self.client.write().await = Some(client);
@@ -67,7 +68,7 @@ impl DaemonLink {
                         tracing::info!("lost the connection to mixlinkd");
                     }
                     Err(e) => tracing::warn!("mixlinkd handshake failed: {e}"),
-                }
+                },
             }
             report(false, &sink);
             tokio::time::sleep(retry).await;

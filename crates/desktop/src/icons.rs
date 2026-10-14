@@ -42,14 +42,47 @@ fn entry_fields(text: &str) -> HashMap<String, String> {
     fields
 }
 
+/// Splits an Exec line into tokens, honoring desktop-entry quoting: a token starting with `"`
+/// runs to the next `"`, so a quoted path may contain spaces.
+fn exec_tokens(exec: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut chars = exec.chars().peekable();
+    while let Some(&c) = chars.peek() {
+        if c.is_whitespace() {
+            chars.next();
+            continue;
+        }
+        let mut token = String::new();
+        if c == '"' {
+            chars.next();
+            for c in chars.by_ref() {
+                if c == '"' {
+                    break;
+                }
+                token.push(c);
+            }
+        } else {
+            while let Some(&c) = chars.peek() {
+                if c.is_whitespace() {
+                    break;
+                }
+                token.push(c);
+                chars.next();
+            }
+        }
+        tokens.push(token);
+    }
+    tokens
+}
+
 /// Basename of the executable in an Exec line, skipping `env VAR=… ` prefixes.
 fn exec_binary(exec: &str) -> Option<String> {
-    let mut parts = exec.split_whitespace();
-    let mut first = parts.next()?;
+    let mut tokens = exec_tokens(exec).into_iter();
+    let mut first = tokens.next()?;
     if first == "env" {
-        first = parts.find(|p| !p.contains('='))?;
+        first = tokens.find(|p| !p.contains('='))?;
     }
-    Path::new(first.trim_matches('"'))
+    Path::new(&first)
         .file_name()
         .map(|n| n.to_string_lossy().to_lowercase())
 }
@@ -224,6 +257,31 @@ mod tests {
             Some("spotify-client")
         );
         assert_eq!(icon_name_from_desktop("pw-play", &dirs), None);
+    }
+
+    #[test]
+    fn finds_icon_for_quoted_exec_paths_with_spaces() {
+        let d = tempfile::tempdir().unwrap();
+        let apps = d.path().join("applications");
+        write(
+            &apps,
+            "my-app.desktop",
+            "[Desktop Entry]\nExec=\"/opt/My App/My App\" %U\nIcon=my-app\n",
+        );
+        write(
+            &apps,
+            "tool-x.desktop",
+            "[Desktop Entry]\nExec=env FOO=1 \"/opt/Tool X/tool\" --x\nIcon=tool-x\n",
+        );
+        let dirs = vec![apps];
+        assert_eq!(
+            icon_name_from_desktop("my app", &dirs).as_deref(),
+            Some("my-app")
+        );
+        assert_eq!(
+            icon_name_from_desktop("tool", &dirs).as_deref(),
+            Some("tool-x")
+        );
     }
 
     #[test]
