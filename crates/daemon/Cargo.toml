@@ -7,12 +7,18 @@ edition = "2024"
 name = "wavelinkd"
 path = "src/lib.rs"
 
+[[bin]]
+name = "wavelinkd"
+path = "src/main.rs"
+
 [dependencies]
 wavelink-core = { path = "../core" }
+anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 toml = "1"
 tokio = { version = "1", features = ["rt", "macros", "net", "io-util", "sync", "time", "signal"] }
 libspa-sys = "0.10.1"

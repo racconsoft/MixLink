@@ -1,0 +1,12 @@
+[Unit]
+Description=WaveLink Linux audio mixer daemon
+After=pipewire.service wireplumber.service
+Requires=pipewire.service
+
+[Service]
+ExecStart=%h/.cargo/bin/wavelinkd
+Restart=on-failure
+RestartSec=1
+
+[Install]
+WantedBy=default.target
