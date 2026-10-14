@@ -47,9 +47,12 @@ pub fn wav_peak(path: &Path) -> f32 {
         if id == b"data" {
             let data = &bytes[body..body.saturating_add(size).min(bytes.len())];
             return match (format, bits) {
-                (3 | 0xFFFE, 32) => {
-                    data.as_chunks::<4>().0.iter().map(|c| f32::from_le_bytes(*c).abs()).fold(0.0, f32::max)
-                }
+                (3 | 0xFFFE, 32) => data
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .map(|c| f32::from_le_bytes(*c).abs())
+                    .fold(0.0, f32::max),
                 (1, 16) => data
                     .as_chunks::<2>()
                     .0
@@ -73,16 +76,33 @@ pub fn start_record(path: &Path, target: &str) -> Child {
 }
 
 pub fn start_play(path: &Path, target: &str) -> Child {
-    Command::new("pw-play").args(["--target", target]).arg(path).spawn().expect("pw-play")
+    Command::new("pw-play")
+        .args(["--target", target])
+        .arg(path)
+        .spawn()
+        .expect("pw-play")
 }
 
 pub fn stop_record(mut child: Child) {
     std::thread::sleep(Duration::from_millis(300));
-    let _ = Command::new("kill").args(["-INT", &child.id().to_string()]).status();
+    let _ = Command::new("kill")
+        .args(["-INT", &child.id().to_string()])
+        .status();
     let _ = child.wait();
 }
 
 pub fn pw_link(output: &str, input: &str) {
-    let status = Command::new("pw-link").args([output, input]).status().expect("pw-link");
+    let status = Command::new("pw-link")
+        .args([output, input])
+        .status()
+        .expect("pw-link");
     assert!(status.success(), "pw-link {output} {input} failed");
+}
+
+pub fn pw_unlink(output: &str, input: &str) {
+    let status = Command::new("pw-link")
+        .args(["-d", output, input])
+        .status()
+        .expect("pw-link -d");
+    assert!(status.success(), "pw-link -d {output} {input} failed");
 }

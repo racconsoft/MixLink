@@ -13,9 +13,11 @@ use pw::spa::utils::dict::DictRef;
 use pw::spa::utils::result::AsyncSeq;
 use pw::types::ObjectType;
 use tokio::sync::mpsc::UnboundedSender;
-use wavelink_core::model::{channel_node_name, ChannelId, Device};
+use wavelink_core::model::{ChannelId, Device, channel_node_name};
 
-use super::graph::{self, ChannelLink, Graph, LinkPlan, Removed, SourceKind, MIXER_NODE, STREAM_MIX_NODE};
+use super::graph::{
+    self, ChannelLink, Graph, LinkPlan, MIXER_NODE, Removed, STREAM_MIX_NODE, SourceKind,
+};
 use super::identity::{app_identity, read_proc_comm};
 use super::mixer_node::MixerNode;
 use super::nodes::create_null_sink;
@@ -30,6 +32,8 @@ pub enum SessionEnd {
 
 const DEFAULT_SINK_KEY: &str = "default.configured.audio.sink";
 const METER_INTERVAL: Duration = Duration::from_millis(33);
+/// Linux `EPIPE`: the only core error that means the connection is gone.
+const EPIPE: i32 = 32;
 
 struct ChannelEntry {
     slot: usize,
@@ -108,13 +112,13 @@ pub fn run_session(
             let weak = Rc::downgrade(&session);
             move |id, _seq, res, message| {
                 tracing::warn!("PipeWire error on object {id}: {res} {message}");
-                if id == pw::core::PW_ID_CORE
+                if ends_session(id, res)
                     && let Some(s) = weak.upgrade()
                 {
-                        let mut s = s.borrow_mut();
-                        s.end.get_or_insert(SessionEnd::Disconnected);
-                        s.mainloop.quit();
-                    }
+                    let mut s = s.borrow_mut();
+                    s.end.get_or_insert(SessionEnd::Disconnected);
+                    s.mainloop.quit();
+                }
             }
         })
         .done({
@@ -153,7 +157,11 @@ pub fn run_session(
     // 1st roundtrip: all globals (metadata gets bound); 2nd: metadata property values.
     for _ in 0..2 {
         if !roundtrip(&mainloop, &core, &session) {
-            let end = session.borrow_mut().end.take().unwrap_or(SessionEnd::Disconnected);
+            let end = session
+                .borrow_mut()
+                .end
+                .take()
+                .unwrap_or(SessionEnd::Disconnected);
             return (commands, end);
         }
     }
@@ -162,12 +170,19 @@ pub fn run_session(
         Ok(mixer) => mixer,
         Err(e) => return (commands, SessionEnd::ConnectFailed(e)),
     };
-    let stream_mix = match create_null_sink(&core, STREAM_MIX_NODE, "WaveLink Stream Mix", "Audio/Source/Virtual") {
+    let stream_mix = match create_null_sink(
+        &core,
+        STREAM_MIX_NODE,
+        "WaveLink Stream Mix",
+        "Audio/Source/Virtual",
+    ) {
         Ok(node) => node,
         Err(e) => return (commands, SessionEnd::ConnectFailed(e.to_string())),
     };
     let previous = session.borrow().configured_default_sink.clone();
-    let _ = events.send(BackendEvent::Ready { previous_default_sink: previous });
+    let _ = events.send(BackendEvent::Ready {
+        previous_default_sink: previous,
+    });
 
     let attached = commands.attach(mainloop.loop_(), {
         let weak = Rc::downgrade(&session);
@@ -193,7 +208,7 @@ pub fn run_session(
     let end = {
         let mut s = session.borrow_mut();
         s.teardown();
-        let _ = core.destroy_object(stream_mix);
+        drop(stream_mix);
         s.end.take().unwrap_or(SessionEnd::Disconnected)
     };
     (commands, end)
@@ -201,9 +216,15 @@ pub fn run_session(
 
 /// Runs the loop until the server has processed everything sent so far.
 /// Returns false if the session ended meanwhile.
-fn roundtrip(mainloop: &pw::main_loop::MainLoopRc, core: &pw::core::CoreRc, session: &Rc<RefCell<Session>>) -> bool {
+fn roundtrip(
+    mainloop: &pw::main_loop::MainLoopRc,
+    core: &pw::core::CoreRc,
+    session: &Rc<RefCell<Session>>,
+) -> bool {
     let done = Rc::new(Cell::new(false));
-    let Ok(pending) = core.sync(0) else { return false };
+    let Ok(pending) = core.sync(0) else {
+        return false;
+    };
     let _listener = core
         .add_listener_local()
         .done({
@@ -226,8 +247,18 @@ fn roundtrip(mainloop: &pw::main_loop::MainLoopRc, core: &pw::core::CoreRc, sess
     true
 }
 
+/// Other core errors (e.g. -ENOENT for a destroy racing a server-side removal) are
+/// reported on PW_ID_CORE too; only a broken connection ends the session.
+fn ends_session(id: u32, res: i32) -> bool {
+    id == pw::core::PW_ID_CORE && res == -EPIPE
+}
+
 fn parse_default_sink(json: &str) -> Option<String> {
-    serde_json::from_str::<serde_json::Value>(json).ok()?.get("name")?.as_str().map(str::to_owned)
+    serde_json::from_str::<serde_json::Value>(json)
+        .ok()?
+        .get("name")?
+        .as_str()
+        .map(str::to_owned)
 }
 
 impl Session {
@@ -236,12 +267,18 @@ impl Session {
         let get = |k: &str| props.get(k).map(str::to_owned);
         match global.type_ {
             ObjectType::Node => {
-                let Some(node) = graph::parse_node(global.id, get) else { return };
+                let Some(node) = graph::parse_node(global.id, get) else {
+                    return;
+                };
                 let is_stream = node.is_app_stream();
                 {
                     let mut s = this.borrow_mut();
                     if let Some(kind) = node.device_kind() {
-                        let device = Device { name: node.name.clone(), description: node.description.clone(), kind };
+                        let device = Device {
+                            name: node.name.clone(),
+                            description: node.description.clone(),
+                            kind,
+                        };
                         let _ = s.events.send(BackendEvent::DeviceAdded(device));
                     }
                     let name = node.name.clone();
@@ -268,7 +305,9 @@ impl Session {
                     s.refresh_stream(output_node);
                 }
             }
-            ObjectType::Metadata if props.get("metadata.name") == Some("default") => Self::watch_metadata(this, global),
+            ObjectType::Metadata if props.get("metadata.name") == Some("default") => {
+                Self::watch_metadata(this, global)
+            }
             _ => {}
         }
     }
@@ -286,7 +325,9 @@ impl Session {
         let listener = proxy
             .add_listener_local()
             .info(move |info| {
-                let Some(session) = weak.upgrade() else { return };
+                let Some(session) = weak.upgrade() else {
+                    return;
+                };
                 let Some(props) = info.props() else { return };
                 let get = |k: &str| props.get(k).map(str::to_owned);
                 if get("node.dont-move").as_deref() == Some("true") {
@@ -298,16 +339,29 @@ impl Session {
                 let mut guard = session.borrow_mut();
                 let s = &mut *guard;
                 let target = s.graph.link_target(id).map(str::to_owned);
-                let info = StreamInfo { node_id: id, app, name, icon, target };
+                let info = StreamInfo {
+                    node_id: id,
+                    app,
+                    name,
+                    icon,
+                    target,
+                };
                 if let Some(entry) = s.streams.get_mut(&id)
                     && entry.info.as_ref() != Some(&info)
                 {
-                        entry.info = Some(info.clone());
-                        let _ = s.events.send(BackendEvent::StreamUpdated(info));
-                    }
+                    entry.info = Some(info.clone());
+                    let _ = s.events.send(BackendEvent::StreamUpdated(info));
+                }
             })
             .register();
-        this.borrow_mut().streams.insert(id, StreamEntry { _proxy: proxy, _listener: listener, info: None });
+        this.borrow_mut().streams.insert(
+            id,
+            StreamEntry {
+                _proxy: proxy,
+                _listener: listener,
+                info: None,
+            },
+        );
     }
 
     fn watch_metadata(this: &Rc<RefCell<Self>>, global: &GlobalObject<&DictRef>) {
@@ -322,11 +376,12 @@ impl Session {
         let listener = metadata
             .add_listener_local()
             .property(move |subject, key, _type, value| {
-                if subject == 0 && key == Some(DEFAULT_SINK_KEY)
+                if subject == 0
+                    && key == Some(DEFAULT_SINK_KEY)
                     && let Some(s) = weak.upgrade()
                 {
-                        s.borrow_mut().configured_default_sink = value.and_then(parse_default_sink);
-                    }
+                    s.borrow_mut().configured_default_sink = value.and_then(parse_default_sink);
+                }
                 0
             })
             .register();
@@ -347,8 +402,16 @@ impl Session {
                 self.pending_moves.remove(&id);
                 self.last_moves.remove(&id);
             }
-            Removed::Port(port) => self.links.retain(|(out, inp), _| *out != port.id && *inp != port.id),
-            Removed::Link(link) => self.refresh_stream(link.output_node),
+            Removed::Port(port) => self
+                .links
+                .retain(|(out, inp), _| *out != port.id && *inp != port.id),
+            Removed::Link(link) => {
+                // A link of ours vanished (removed externally or never fully created):
+                // forget it so reconcile can recreate it if it is still desired.
+                self.links.remove(&(link.output_port, link.input_port));
+                self.refresh_stream(link.output_node);
+                self.reconcile();
+            }
             Removed::Unknown => {}
         }
     }
@@ -358,16 +421,19 @@ impl Session {
         if let Some(info) = self.streams.get_mut(&node_id).and_then(|e| e.info.as_mut())
             && info.target != target
         {
-                info.target = target;
-                let _ = self.events.send(BackendEvent::StreamUpdated(info.clone()));
-            }
+            info.target = target;
+            let _ = self.events.send(BackendEvent::StreamUpdated(info.clone()));
+        }
     }
 
     fn on_command(&mut self, cmd: BackendCommand) {
         match cmd {
-            BackendCommand::EnsureChannel { id, slot, description, source } => {
-                self.ensure_channel(id, slot, description, source)
-            }
+            BackendCommand::EnsureChannel {
+                id,
+                slot,
+                description,
+                source,
+            } => self.ensure_channel(id, slot, description, source),
             BackendCommand::RemoveChannel { id } => {
                 self.destroy_channel(&id);
                 self.reconcile();
@@ -380,6 +446,8 @@ impl Session {
             BackendCommand::SetDefaultSink(name) => self.set_default_sink(name.as_deref()),
             BackendCommand::MoveStream { node_id, target } => {
                 if self.graph.node_by_name(&target).is_some() {
+                    // An older deferred move must not override this one later.
+                    self.pending_moves.remove(&node_id);
                     self.apply_move(node_id, &target);
                 } else {
                     self.pending_moves.insert(node_id, target);
@@ -395,16 +463,29 @@ impl Session {
         }
     }
 
-    fn ensure_channel(&mut self, id: ChannelId, slot: usize, description: String, source: ChannelSource) {
+    fn ensure_channel(
+        &mut self,
+        id: ChannelId,
+        slot: usize,
+        description: String,
+        source: ChannelSource,
+    ) {
         if let Some(existing) = self.channels.get(&id)
-            && existing.slot == slot && existing.description == description && existing.source == source
+            && existing.slot == slot
+            && existing.description == description
+            && existing.source == source
         {
-                return;
-            }
+            return;
+        }
         self.destroy_channel(&id);
         let node = match &source {
             ChannelSource::Virtual => {
-                match create_null_sink(&self.core, &channel_node_name(&id), &description, "Audio/Sink") {
+                match create_null_sink(
+                    &self.core,
+                    &channel_node_name(&id),
+                    &description,
+                    "Audio/Sink",
+                ) {
                     Ok(node) => Some(node),
                     Err(e) => {
                         tracing::error!("creating channel {id} failed: {e}");
@@ -414,17 +495,31 @@ impl Session {
             }
             ChannelSource::Input { .. } => None,
         };
-        self.channels.insert(id, ChannelEntry { slot, description, source, node });
+        self.channels.insert(
+            id,
+            ChannelEntry {
+                slot,
+                description,
+                source,
+                node,
+            },
+        );
         self.reconcile();
     }
 
+    /// Proxies of our objects are destroyed by dropping them: `pw_proxy_destroy`
+    /// sends exactly one `pw_core_destroy`. (`Core::destroy_object` sends one too and
+    /// the dropped proxy a second, which the server answers with "unknown resource".)
     fn destroy_channel(&mut self, id: &str) {
         if let Some(entry) = self.channels.remove(id)
             && let Some(node) = entry.node
         {
-                self.graph.forget_node_named(&channel_node_name(id));
-                let _ = self.core.destroy_object(node);
-            }
+            self.graph.forget_node_named(&channel_node_name(id));
+            // Unlink before the node goes: destroying the node removes its links on the
+            // server, and a later destroy of those links would hit unknown resources.
+            self.reconcile();
+            drop(node);
+        }
     }
 
     fn set_default_sink(&self, name: Option<&str>) {
@@ -433,11 +528,18 @@ impl Session {
             return;
         };
         let value = name.map(|n| serde_json::json!({ "name": n }).to_string());
-        metadata.set_property(0, DEFAULT_SINK_KEY, value.as_ref().map(|_| "Spa:String:JSON"), value.as_deref());
+        metadata.set_property(
+            0,
+            DEFAULT_SINK_KEY,
+            value.as_ref().map(|_| "Spa:String:JSON"),
+            value.as_deref(),
+        );
     }
 
     fn apply_move(&mut self, node_id: u32, target: &str) {
-        let Some(metadata) = &self.metadata else { return };
+        let Some(metadata) = &self.metadata else {
+            return;
+        };
         if self.last_moves.get(&node_id).map(String::as_str) == Some(target) {
             // Same value again (e.g. after the target sink was recreated): clear first so
             // WirePlumber sees a change.
@@ -448,8 +550,12 @@ impl Session {
     }
 
     fn flush_pending_moves(&mut self, appeared: &str) {
-        let ready: Vec<u32> =
-            self.pending_moves.iter().filter(|(_, target)| *target == appeared).map(|(id, _)| *id).collect();
+        let ready: Vec<u32> = self
+            .pending_moves
+            .iter()
+            .filter(|(_, target)| *target == appeared)
+            .map(|(id, _)| *id)
+            .collect();
         for node_id in ready {
             if let Some(target) = self.pending_moves.remove(&node_id) {
                 self.apply_move(node_id, &target);
@@ -462,7 +568,9 @@ impl Session {
             .channels
             .iter()
             .map(|(id, entry)| match &entry.source {
-                ChannelSource::Virtual => (entry.slot, channel_node_name(id), SourceKind::SinkMonitor),
+                ChannelSource::Virtual => {
+                    (entry.slot, channel_node_name(id), SourceKind::SinkMonitor)
+                }
                 ChannelSource::Input { source } => (entry.slot, source.clone(), SourceKind::Source),
             })
             .collect();
@@ -473,22 +581,34 @@ impl Session {
                 monitor_output: self.monitor_output.as_deref(),
                 channels: channel_nodes
                     .iter()
-                    .map(|(slot, node, kind)| ChannelLink { slot: *slot, node, kind: *kind })
+                    .map(|(slot, node, kind)| ChannelLink {
+                        slot: *slot,
+                        node,
+                        kind: *kind,
+                    })
                     .collect(),
             };
             self.graph.desired_links(&plan).into_iter().collect()
         };
-        let stale: Vec<(u32, u32)> = self.links.keys().filter(|k| !desired.contains(k)).copied().collect();
+        let stale: Vec<(u32, u32)> = self
+            .links
+            .keys()
+            .filter(|k| !desired.contains(k))
+            .copied()
+            .collect();
         for key in stale {
-            if let Some(link) = self.links.remove(&key) {
-                let _ = self.core.destroy_object(link);
-            }
+            drop(self.links.remove(&key));
         }
         for (out_port, in_port) in desired {
-            if self.links.contains_key(&(out_port, in_port)) || self.graph.has_link(out_port, in_port) {
+            if self.links.contains_key(&(out_port, in_port))
+                || self.graph.has_link(out_port, in_port)
+            {
                 continue;
             }
-            let (Some(out), Some(inp)) = (self.graph.port(out_port), self.graph.port(in_port)) else { continue };
+            let (Some(out), Some(inp)) = (self.graph.port(out_port), self.graph.port(in_port))
+            else {
+                continue;
+            };
             let props = properties! {
                 "link.output.node" => out.node.to_string(),
                 "link.output.port" => out_port.to_string(),
@@ -496,7 +616,10 @@ impl Session {
                 "link.input.port" => in_port.to_string(),
                 "object.linger" => "false",
             };
-            match self.core.create_object::<pw::link::Link>("link-factory", &props) {
+            match self
+                .core
+                .create_object::<pw::link::Link>("link-factory", &props)
+            {
                 Ok(link) => {
                     self.links.insert((out_port, in_port), link);
                 }
@@ -506,15 +629,31 @@ impl Session {
     }
 
     fn teardown(&mut self) {
-        for (_, link) in self.links.drain() {
-            let _ = self.core.destroy_object(link);
-        }
-        let ids: Vec<ChannelId> = self.channels.keys().cloned().collect();
-        for id in ids {
-            self.destroy_channel(&id);
-        }
+        // Links first, then the nodes they hang off (see `destroy_channel`). No
+        // reconcile here: it would recreate links for the channels still present.
+        self.links.clear();
+        self.channels.clear();
         self.streams.clear();
         self.metadata_listener = None;
         self.metadata = None;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_a_broken_core_connection_ends_the_session() {
+        assert!(ends_session(pw::core::PW_ID_CORE, -EPIPE));
+        assert!(
+            !ends_session(pw::core::PW_ID_CORE, -2),
+            "unknown resource (-ENOENT)"
+        );
+        assert!(
+            !ends_session(pw::core::PW_ID_CORE, -22),
+            "invalid argument (-EINVAL)"
+        );
+        assert!(!ends_session(42, -EPIPE), "error on another object");
     }
 }
