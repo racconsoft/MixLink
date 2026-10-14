@@ -244,9 +244,6 @@ pnpm screenshot   # Playwright screenshots of the mock UI, into gui/screenshots/
 pnpm tauri dev    # the real Tauri app against a running mixlinkd
 ```
 
-Design docs live in `docs/superpowers/specs/` (architecture) and
-`docs/superpowers/plans/` (per-milestone implementation plans).
-
 ## Roadmap
 
 - Mic effects chain (noise suppression, gate, compressor, EQ) and Wave XLR hardware
