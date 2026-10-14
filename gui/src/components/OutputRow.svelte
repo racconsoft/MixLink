@@ -14,6 +14,13 @@
   const sinks = $derived(($daemonState?.devices ?? []).filter((d) => d.kind === "sink"));
   const current = $derived(mix?.output_device ?? "");
   const missing = $derived(current !== "" && !sinks.some((d) => d.name === current));
+
+  async function changeDevice(e: Event & { currentTarget: HTMLSelectElement }) {
+    const select = e.currentTarget;
+    const value = select.value;
+    const ok = await send({ cmd: "set_mix", args: { mix: "monitor", output_device: value } });
+    if (!ok) select.value = current;
+  }
 </script>
 
 {#if mix}
@@ -21,8 +28,7 @@
     <span class="label">{title}</span>
     {#if kind === "monitor"}
       <span class="device"><Headphones size={14} />
-        <select aria-label={title} value={current}
-          onchange={(e) => send({ cmd: "set_mix", args: { mix: "monitor", output_device: e.currentTarget.value } })}>
+        <select aria-label={title} value={current} onchange={changeDevice}>
           {#if missing}<option value={current}>{t("outputs.disconnected", { name: current })}</option>{/if}
           {#each sinks as d (d.name)}<option value={d.name}>{d.description}</option>{/each}
         </select>

@@ -30,6 +30,19 @@ describe("OutputRow", () => {
     expect(screen.getByRole("combobox")).toHaveDisplayValue("alsa_output.gone (disconnected)");
   });
 
+  it("resets the select to the current device when the command fails", async () => {
+    const mock = createMock();
+    mock.send = async () => {
+      throw { code: "internal", message: "nope" };
+    };
+    initBackend(mock);
+    daemonState.set(initialMockState());
+    render(OutputRow, { kind: "monitor" });
+    const select = screen.getByRole("combobox");
+    await fireEvent.change(select, { target: { value: "alsa_output.hdmi" } });
+    await vi.waitFor(() => expect(select).toHaveDisplayValue("USB Audio Speakers"));
+  });
+
   it("stream row has a fixed target, mute and listen", async () => {
     const sent = setup();
     render(OutputRow, { kind: "stream" });

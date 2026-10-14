@@ -29,4 +29,12 @@ describe("ChannelDialog", () => {
     expect(sent).toHaveBeenCalledWith({ cmd: "rename_channel", args: { channel: "music", name: "Tunes" } });
     expect(sent).not.toHaveBeenCalledWith(expect.objectContaining({ cmd: "update_channel" }));
   });
+
+  it("Escape calls onclose", async () => {
+    initBackend(createMock());
+    const onclose = vi.fn();
+    render(ChannelDialog, { mode: { kind: "create" }, onclose });
+    await fireEvent.keyDown(window, { key: "Escape" });
+    expect(onclose).toHaveBeenCalled();
+  });
 });

@@ -8,17 +8,29 @@
   const channels = $derived(($daemonState?.config.channels ?? []).filter((c) => c.kind === "virtual"));
 
   onMount(() => {
-    void activeBackend().getAutostart().then((v) => (autostart = v));
+    void activeBackend()
+      .getAutostart()
+      .then((v) => (autostart = v))
+      .catch((e) => pushToast(formatError(e)));
   });
 
-  async function toggleAutostart() {
-    const next = !autostart;
+  async function toggleAutostart(e: Event & { currentTarget: HTMLInputElement }) {
+    const checkbox = e.currentTarget;
+    const next = checkbox.checked;
     try {
       await activeBackend().setAutostart(next);
       autostart = next;
-    } catch (e) {
-      pushToast(formatError(e));
+    } catch (err) {
+      checkbox.checked = autostart;
+      pushToast(formatError(err));
     }
+  }
+
+  async function changeFallback(e: Event & { currentTarget: HTMLSelectElement }) {
+    const select = e.currentTarget;
+    const value = select.value;
+    const ok = await send({ cmd: "set_fallback_channel", args: { channel: value } });
+    if (!ok) select.value = $daemonState?.config.fallback_channel ?? "";
   }
 </script>
 
@@ -29,8 +41,7 @@
     <h2>{t("settings.title")}</h2>
     <label class="check"><input type="checkbox" checked={autostart} onchange={toggleAutostart} />{t("settings.autostart")}</label>
     <label class="field">{t("settings.fallback")}
-      <select value={$daemonState?.config.fallback_channel}
-        onchange={(e) => send({ cmd: "set_fallback_channel", args: { channel: e.currentTarget.value } })}>
+      <select value={$daemonState?.config.fallback_channel} onchange={changeFallback}>
         {#each channels as c (c.id)}<option value={c.id}>{c.name}</option>{/each}
       </select>
     </label>
