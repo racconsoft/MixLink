@@ -13,7 +13,8 @@ function firstByApp(allApps: ActiveApp[]): Map<string, ActiveApp> {
 /** Apps shown in a channel: its rules (running or not), then other apps currently playing in it. */
 export function channelApps(channel: Channel, allApps: ActiveApp[]): AppEntry[] {
   const byApp = firstByApp(allApps);
-  const out: AppEntry[] = channel.apps.map((rule) => {
+  // A hand-edited config may list a rule twice.
+  const out: AppEntry[] = [...new Set(channel.apps)].map((rule) => {
     const a = byApp.get(rule);
     return { app: rule, name: a?.name ?? rule, iconName: a?.icon ?? null, running: a !== undefined };
   });

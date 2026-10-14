@@ -24,4 +24,9 @@ describe("apps", () => {
   it("running apps are unique by identity", () => {
     expect(runningApps(apps).map((a) => a.app)).toEqual(["spotify", "firefox", "discord"]);
   });
+
+  it("duplicate rules from a hand-edited config are shown once", () => {
+    const dup: Channel = { ...music, apps: ["spotify", "vlc", "spotify", "vlc"] };
+    expect(channelApps(dup, apps).map((e) => e.app)).toEqual(["spotify", "vlc", "firefox"]);
+  });
 });
