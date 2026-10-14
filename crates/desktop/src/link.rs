@@ -1,6 +1,7 @@
 //! Keeps a connection to mixlinkd, reconnecting forever, and forwards events to a sink.
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use mixlink_core::async_client::AsyncClient;
@@ -20,14 +21,44 @@ pub trait LinkSink: Send + Sync + 'static {
     fn connection(&self, connected: bool);
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct DaemonLink {
     client: Arc<RwLock<Option<AsyncClient>>>,
+    /// Whether meters are wanted (false while the window is hidden).
+    meters: Arc<AtomicBool>,
+}
+
+impl Default for DaemonLink {
+    fn default() -> Self {
+        Self {
+            client: Arc::default(),
+            meters: Arc::new(AtomicBool::new(true)),
+        }
+    }
 }
 
 impl DaemonLink {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Turns the meter stream on or off; remembered across reconnects.
+    pub async fn set_meters(&self, enabled: bool) {
+        if self.meters.swap(enabled, Ordering::SeqCst) == enabled {
+            return;
+        }
+        tracing::debug!("meters {}", if enabled { "on" } else { "off" });
+        let client = self.client.read().await.clone();
+        if let Some(client) = client
+            && let Err(e) = client
+                .call(Command::Subscribe {
+                    state: true,
+                    meters: enabled,
+                })
+                .await
+        {
+            tracing::debug!("could not change the meter subscription: {e}");
+        }
     }
 
     pub async fn send(&self, command: Command) -> Result<Value, ErrorBody> {
@@ -53,10 +84,20 @@ impl DaemonLink {
         loop {
             match AsyncClient::connect(&socket).await {
                 Err(e) => tracing::debug!("could not connect to mixlinkd: {e}"),
-                Ok((client, mut events)) => match initial_state(&client).await {
-                    Ok(state) => {
+                Ok((client, mut events)) => match initial_state(&client, &self.meters).await {
+                    Ok((state, subscribed_meters)) => {
                         sink.state(&state);
-                        *self.client.write().await = Some(client);
+                        *self.client.write().await = Some(client.clone());
+                        // set_meters() during the handshake could not reach the daemon yet.
+                        let wanted = self.meters.load(Ordering::SeqCst);
+                        if wanted != subscribed_meters {
+                            let _ = client
+                                .call(Command::Subscribe {
+                                    state: true,
+                                    meters: wanted,
+                                })
+                                .await;
+                        }
                         report(true, &sink);
                         while let Some(event) = events.next().await {
                             match &event {
@@ -76,13 +117,19 @@ impl DaemonLink {
     }
 }
 
-async fn initial_state(client: &AsyncClient) -> Result<State, ClientError> {
+/// Subscribes (with the remembered meter flag) and loads the full state.
+async fn initial_state(
+    client: &AsyncClient,
+    meters: &AtomicBool,
+) -> Result<(State, bool), ClientError> {
+    let meters = meters.load(Ordering::SeqCst);
     client
         .call(Command::Subscribe {
             state: true,
-            meters: true,
+            meters,
         })
         .await?;
     let value = client.call(Command::GetState).await?;
-    serde_json::from_value(value).map_err(|e| ClientError::Protocol(e.to_string()))
+    let state = serde_json::from_value(value).map_err(|e| ClientError::Protocol(e.to_string()))?;
+    Ok((state, meters))
 }

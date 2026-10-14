@@ -47,6 +47,10 @@ fn main() {
         .setup(move |app| {
             let sink = Arc::new(bridge::TauriSink::new(app.handle().clone()));
             let link = DaemonLink::new();
+            if hidden {
+                // Started into the tray: no meters until the window is shown.
+                tauri::async_runtime::block_on(link.set_meters(false));
+            }
             tauri::async_runtime::spawn(link.clone().run(
                 paths::socket_path(),
                 sink.clone(),
@@ -75,13 +79,16 @@ fn main() {
             }
             Ok(())
         })
-        .on_window_event(move |window, event| {
-            if let WindowEvent::CloseRequested { api, .. } = event
-                && window::close_action(close_state.get()) == window::CloseAction::Hide
+        .on_window_event(move |window, event| match event {
+            WindowEvent::CloseRequested { api, .. }
+                if window::close_action(close_state.get()) == window::CloseAction::Hide =>
             {
                 api.prevent_close();
-                let _ = window.hide();
+                window::hide_main(window);
             }
+            // Shown by other means (e.g. the window manager): resume meters.
+            WindowEvent::Focused(true) => window::set_meters(window.app_handle(), true),
+            _ => {}
         })
         .invoke_handler(tauri::generate_handler![
             bridge::send,

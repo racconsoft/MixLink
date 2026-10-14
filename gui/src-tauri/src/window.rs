@@ -1,7 +1,8 @@
 //! Window visibility rules.
 use std::sync::atomic::{AtomicU8, Ordering};
 
-use tauri::{AppHandle, Manager};
+use mixlink_desktop::link::DaemonLink;
+use tauri::{AppHandle, Manager, Runtime, Window};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CloseAction {
@@ -55,6 +56,17 @@ impl TrayState {
     pub fn get(&self) -> TrayStatus {
         TrayStatus::from_u8(self.0.load(Ordering::Relaxed))
     }
+
+    /// Marks the tray as available unless a watcher callback already settled the status (with
+    /// `assume_sni_available`, `watcher_offline` can run before `spawn()` returns).
+    pub fn settle_available(&self) {
+        let _ = self.0.compare_exchange(
+            TrayStatus::Pending.as_u8(),
+            TrayStatus::Available.as_u8(),
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+        );
+    }
 }
 
 impl Default for TrayState {
@@ -79,6 +91,21 @@ pub fn show_main(app: &AppHandle) {
         let _ = window.unminimize();
         let _ = window.set_focus();
     }
+    set_meters(app, true);
+}
+
+/// Hides the main window (close to tray) and stops the meter stream it no longer shows.
+pub fn hide_main<R: Runtime>(window: &Window<R>) {
+    let _ = window.hide();
+    set_meters(window.app_handle(), false);
+}
+
+/// Meters are only streamed while the window is visible (they arrive ~30×/s).
+pub fn set_meters<R: Runtime>(app: &AppHandle<R>, enabled: bool) {
+    if let Some(link) = app.try_state::<DaemonLink>() {
+        let link = link.inner().clone();
+        tauri::async_runtime::spawn(async move { link.set_meters(enabled).await });
+    }
 }
 
 #[cfg(test)]
@@ -90,5 +117,17 @@ mod tests {
         assert_eq!(close_action(TrayStatus::Pending), CloseAction::Hide);
         assert_eq!(close_action(TrayStatus::Available), CloseAction::Hide);
         assert_eq!(close_action(TrayStatus::Unavailable), CloseAction::Quit);
+    }
+
+    #[test]
+    fn a_successful_spawn_does_not_override_an_earlier_watcher_callback() {
+        let state = TrayState::new();
+        state.settle_available();
+        assert_eq!(state.get(), TrayStatus::Available);
+
+        let state = TrayState::new();
+        state.set(TrayStatus::Unavailable);
+        state.settle_available();
+        assert_eq!(state.get(), TrayStatus::Unavailable);
     }
 }

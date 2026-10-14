@@ -6,8 +6,10 @@ use mixlink_core::protocol::{Command, ErrorCode, Event, Request};
 use mixlink_desktop::link::{DaemonLink, LinkSink, NOT_RUNNING};
 use mixlinkd::actor::{ActorChannels, run_actor};
 use mixlinkd::app::App;
+use mixlinkd::backend::BackendEvent;
 use mixlinkd::backend::fake::FakeBackend;
 use mixlinkd::ipc::{bind_socket, serve};
+use mixlinkd::mixer::dsp::Peaks;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{broadcast, mpsc};
 
@@ -63,12 +65,14 @@ fn config() -> Config {
 }
 
 /// A real mixlinkd core (actor + IPC) with the fake audio backend.
-async fn start_daemon(path: &std::path::Path) {
+/// Returns the backend-event sender, e.g. to feed meters.
+async fn start_daemon(path: &std::path::Path) -> mpsc::UnboundedSender<BackendEvent> {
     let listener = bind_socket(path).unwrap();
     let (msg_tx, msgs) = mpsc::channel(16);
     let (ev_tx, backend_events) = mpsc::unbounded_channel();
     let (bc, _) = broadcast::channel(64);
     tokio::spawn(serve(listener, msg_tx, bc.clone()));
+    let events = ev_tx.clone();
     tokio::spawn(async move {
         let _keep = ev_tx;
         run_actor(
@@ -83,6 +87,7 @@ async fn start_daemon(path: &std::path::Path) {
         )
         .await
     });
+    events
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -198,4 +203,73 @@ async fn reloads_full_state_after_the_daemon_restarts() {
     .await;
     rec.wait_for("reconnected", |r| r.ends_with(&[Rec::Connected(true)]))
         .await;
+}
+
+fn meter_count(rec: &Recorder) -> usize {
+    rec.all().iter().filter(|r| **r == Rec::Meters).count()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn meters_can_be_switched_off_and_on() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("mixlink.sock");
+    let backend = start_daemon(&path).await;
+    let rec = Arc::new(Recorder::default());
+    let link = DaemonLink::new();
+    tokio::spawn(
+        link.clone()
+            .run(path, rec.clone(), Duration::from_millis(50)),
+    );
+    rec.wait_for("connected", |r| r.contains(&Rec::Connected(true)))
+        .await;
+
+    backend
+        .send(BackendEvent::Meters(Peaks::default()))
+        .unwrap();
+    rec.wait_for("meters on by default", |r| r.contains(&Rec::Meters))
+        .await;
+
+    link.set_meters(false).await;
+    // Let anything already in flight drain.
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let before = meter_count(&rec);
+    for _ in 0..5 {
+        backend
+            .send(BackendEvent::Meters(Peaks::default()))
+            .unwrap();
+    }
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(meter_count(&rec), before, "no meters while switched off");
+
+    link.set_meters(true).await;
+    backend
+        .send(BackendEvent::Meters(Peaks::default()))
+        .unwrap();
+    rec.wait_for("meters flow again", |r| {
+        r.iter().filter(|x| **x == Rec::Meters).count() > before
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn remembered_meter_flag_is_used_for_the_handshake() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("mixlink.sock");
+    let backend = start_daemon(&path).await;
+    let rec = Arc::new(Recorder::default());
+    let link = DaemonLink::new();
+    link.set_meters(false).await;
+    tokio::spawn(
+        link.clone()
+            .run(path, rec.clone(), Duration::from_millis(50)),
+    );
+    rec.wait_for("connected", |r| r.contains(&Rec::Connected(true)))
+        .await;
+    for _ in 0..5 {
+        backend
+            .send(BackendEvent::Meters(Peaks::default()))
+            .unwrap();
+    }
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(meter_count(&rec), 0, "subscribed without meters");
 }
