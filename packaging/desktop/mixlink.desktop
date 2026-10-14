@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=MixLink
+GenericName=Audio Mixer
+Comment=Mix and route application audio with PipeWire
+Exec=@BIN@/mixlink-gui
+Icon=mixlink
+Terminal=false
+Categories=AudioVideo;Audio;Mixer;
+Keywords=audio;mixer;pipewire;obs;stream;
+StartupWMClass=mixlink-gui
