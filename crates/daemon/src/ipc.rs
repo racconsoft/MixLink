@@ -6,7 +6,7 @@ use std::path::Path;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::{broadcast, mpsc, oneshot};
-use wavelink_core::protocol::{to_line, Command, ErrorBody, ErrorCode, Request, Response};
+use wavelink_core::protocol::{Command, ErrorBody, ErrorCode, Request, Response, to_line};
 
 use crate::actor::{ActorMsg, Broadcast};
 
@@ -29,7 +29,11 @@ pub fn bind_socket(path: &Path) -> io::Result<UnixListener> {
     Ok(listener)
 }
 
-pub async fn serve(listener: UnixListener, actor: mpsc::Sender<ActorMsg>, broadcast: broadcast::Sender<Broadcast>) {
+pub async fn serve(
+    listener: UnixListener,
+    actor: mpsc::Sender<ActorMsg>,
+    broadcast: broadcast::Sender<Broadcast>,
+) {
     loop {
         match listener.accept().await {
             Ok((stream, _)) => {
@@ -40,7 +44,11 @@ pub async fn serve(listener: UnixListener, actor: mpsc::Sender<ActorMsg>, broadc
     }
 }
 
-async fn handle_client(stream: UnixStream, actor: mpsc::Sender<ActorMsg>, broadcast: broadcast::Sender<Broadcast>) {
+async fn handle_client(
+    stream: UnixStream,
+    actor: mpsc::Sender<ActorMsg>,
+    broadcast: broadcast::Sender<Broadcast>,
+) {
     let (read, mut write) = stream.into_split();
     let mut lines = BufReader::new(read).lines();
     let mut events: Option<broadcast::Receiver<Broadcast>> = None;
@@ -103,7 +111,14 @@ async fn next_broadcast(
 async fn dispatch(actor: &mpsc::Sender<ActorMsg>, request: Request) -> Response {
     let shutting_down = || ErrorBody::new(ErrorCode::Internal, "wavelinkd is shutting down");
     let (reply, rx) = oneshot::channel();
-    if actor.send(ActorMsg::Command { command: request.command, reply }).await.is_err() {
+    if actor
+        .send(ActorMsg::Command {
+            command: request.command,
+            reply,
+        })
+        .await
+        .is_err()
+    {
         return Response::err(request.id, shutting_down());
     }
     match rx.await {

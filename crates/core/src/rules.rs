@@ -33,7 +33,10 @@ pub fn unassign_app(channels: &mut [Channel], app: &str) -> bool {
 }
 
 pub fn assigned_apps(channels: &[Channel]) -> Vec<String> {
-    channels.iter().flat_map(|c| c.apps.iter().cloned()).collect()
+    channels
+        .iter()
+        .flat_map(|c| c.apps.iter().cloned())
+        .collect()
 }
 
 /// Lowercase ASCII id safe for PipeWire node names ("Voice Chat" → "voice-chat").
@@ -49,8 +52,16 @@ pub fn slugify(name: &str) -> String {
             _ => out.push('-'),
         }
     }
-    let slug = out.split('-').filter(|s| !s.is_empty()).collect::<Vec<_>>().join("-");
-    if slug.is_empty() { "channel".into() } else { slug }
+    let slug = out
+        .split('-')
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+    if slug.is_empty() {
+        "channel".into()
+    } else {
+        slug
+    }
 }
 
 pub fn unique_id(name: &str, existing: &[&str]) -> String {
@@ -71,13 +82,20 @@ mod tests {
     fn channels() -> Vec<Channel> {
         let mut music = Channel::new("music", "Music");
         music.apps = vec!["spotify".into()];
-        vec![Channel::new("system", "System"), music, Channel::new("voice-chat", "Voice Chat")]
+        vec![
+            Channel::new("system", "System"),
+            music,
+            Channel::new("voice-chat", "Voice Chat"),
+        ]
     }
 
     #[test]
     fn finds_channel_for_app_case_insensitively() {
         let cs = channels();
-        assert_eq!(channel_for_app(&cs, " Spotify ").map(|c| c.id.as_str()), Some("music"));
+        assert_eq!(
+            channel_for_app(&cs, " Spotify ").map(|c| c.id.as_str()),
+            Some("music")
+        );
         assert!(channel_for_app(&cs, "discord").is_none());
     }
 

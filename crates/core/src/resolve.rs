@@ -31,11 +31,17 @@ pub fn resolve<'a>(query: &str, candidates: &[Candidate<'a>]) -> Result<&'a str,
     let names = |cs: &[&Candidate<'a>]| cs.iter().map(|c| c.name.to_string()).collect::<Vec<_>>();
     let all: Vec<&Candidate<'a>> = candidates.iter().collect();
     if q.is_empty() {
-        return Err(ResolveError::NotFound { query: query.into(), options: names(&all) });
+        return Err(ResolveError::NotFound {
+            query: query.into(),
+            options: names(&all),
+        });
     }
     let lower = |s: &str| s.to_lowercase();
 
-    if let Some(c) = candidates.iter().find(|c| lower(c.id) == q || lower(c.name) == q) {
+    if let Some(c) = candidates
+        .iter()
+        .find(|c| lower(c.id) == q || lower(c.name) == q)
+    {
         return Ok(c.id);
     }
 
@@ -58,23 +64,33 @@ pub fn resolve<'a>(query: &str, candidates: &[Candidate<'a>]) -> Result<&'a str,
     let mut scored: Vec<(f64, &Candidate<'a>)> = candidates
         .iter()
         .map(|c| {
-            let score = strsim::jaro_winkler(&q, &lower(c.name)).max(strsim::jaro_winkler(&q, &lower(c.id)));
+            let score = strsim::jaro_winkler(&q, &lower(c.name))
+                .max(strsim::jaro_winkler(&q, &lower(c.id)));
             (score, c)
         })
         .filter(|(score, _)| *score >= FUZZY_THRESHOLD)
         .collect();
     scored.sort_by(|a, b| b.0.total_cmp(&a.0));
     match scored.as_slice() {
-        [] => Err(ResolveError::NotFound { query: query.into(), options: names(&all) }),
+        [] => Err(ResolveError::NotFound {
+            query: query.into(),
+            options: names(&all),
+        }),
         [(best, c), rest @ ..] => {
-            let ties: Vec<&Candidate<'a>> =
-                rest.iter().filter(|(s, _)| best - s < FUZZY_TIE).map(|(_, c)| *c).collect();
+            let ties: Vec<&Candidate<'a>> = rest
+                .iter()
+                .filter(|(s, _)| best - s < FUZZY_TIE)
+                .map(|(_, c)| *c)
+                .collect();
             if ties.is_empty() {
                 Ok(c.id)
             } else {
                 let mut matches = vec![*c];
                 matches.extend(ties);
-                Err(ResolveError::Ambiguous { query: query.into(), options: names(&matches) })
+                Err(ResolveError::Ambiguous {
+                    query: query.into(),
+                    options: names(&matches),
+                })
             }
         }
     }
@@ -97,11 +113,26 @@ mod tests {
 
     fn channels() -> Vec<Candidate<'static>> {
         vec![
-            Candidate { id: "system", name: "System" },
-            Candidate { id: "game", name: "Game" },
-            Candidate { id: "browser", name: "Browser" },
-            Candidate { id: "voice-chat", name: "Voice Chat" },
-            Candidate { id: "music", name: "Music" },
+            Candidate {
+                id: "system",
+                name: "System",
+            },
+            Candidate {
+                id: "game",
+                name: "Game",
+            },
+            Candidate {
+                id: "browser",
+                name: "Browser",
+            },
+            Candidate {
+                id: "voice-chat",
+                name: "Voice Chat",
+            },
+            Candidate {
+                id: "music",
+                name: "Music",
+            },
         ]
     }
 
@@ -129,12 +160,21 @@ mod tests {
     #[test]
     fn ambiguous_prefix_lists_matches() {
         let cands = [
-            Candidate { id: "game", name: "Game" },
-            Candidate { id: "game-capture", name: "Game Capture" },
+            Candidate {
+                id: "game",
+                name: "Game",
+            },
+            Candidate {
+                id: "game-capture",
+                name: "Game Capture",
+            },
         ];
         let err = resolve("gam", &cands).unwrap_err();
         assert!(matches!(err, ResolveError::Ambiguous { .. }));
-        assert_eq!(err.options(), &["Game".to_string(), "Game Capture".to_string()]);
+        assert_eq!(
+            err.options(),
+            &["Game".to_string(), "Game Capture".to_string()]
+        );
     }
 
     #[test]
@@ -146,6 +186,9 @@ mod tests {
 
     #[test]
     fn empty_query_is_not_found() {
-        assert!(matches!(resolve("  ", &channels()), Err(ResolveError::NotFound { .. })));
+        assert!(matches!(
+            resolve("  ", &channels()),
+            Err(ResolveError::NotFound { .. })
+        ));
     }
 }

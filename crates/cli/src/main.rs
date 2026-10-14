@@ -92,7 +92,10 @@ fn run(cli: &Cli) -> Result<(), String> {
     let mut client = Client::connect(&paths::socket_path()).map_err(|e| e.to_string())?;
     let result = client.call(command).map_err(|e| e.to_string())?;
     if cli.json {
-        println!("{}", serde_json::to_string_pretty(&result).map_err(|e| e.to_string())?);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&result).map_err(|e| e.to_string())?
+        );
         return Ok(());
     }
     if let Cmd::Status = cli.command {
@@ -109,14 +112,27 @@ fn run(cli: &Cli) -> Result<(), String> {
 fn to_command(cmd: &Cmd) -> Result<Command, String> {
     Ok(match cmd {
         Cmd::Status => Command::GetState,
-        Cmd::Volume { channel, mix, level } => {
+        Cmd::Volume {
+            channel,
+            mix,
+            level,
+        } => {
             let (value, delta) = match format::parse_level(level)? {
                 LevelArg::Set(v) => (Some(v), None),
                 LevelArg::Delta(d) => (None, Some(d)),
             };
-            Command::SetVolume { channel: channel.clone(), mix: (*mix).into(), value, delta }
+            Command::SetVolume {
+                channel: channel.clone(),
+                mix: (*mix).into(),
+                value,
+                delta,
+            }
         }
-        Cmd::Mute { channel, mix, action } => Command::SetMute {
+        Cmd::Mute {
+            channel,
+            mix,
+            action,
+        } => Command::SetMute {
             channel: channel.clone(),
             mix: (*mix).into(),
             muted: match action {
@@ -125,7 +141,10 @@ fn to_command(cmd: &Cmd) -> Result<Command, String> {
                 MuteArg::Toggle => None,
             },
         },
-        Cmd::Assign { app, channel } => Command::AssignApp { app: app.clone(), channel: channel.clone() },
+        Cmd::Assign { app, channel } => Command::AssignApp {
+            app: app.clone(),
+            channel: channel.clone(),
+        },
         Cmd::Unassign { app } => Command::UnassignApp { app: app.clone() },
         Cmd::Listen { mix } => Command::SetListen {
             mix: match mix {

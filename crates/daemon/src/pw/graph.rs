@@ -73,8 +73,15 @@ pub enum Removed {
 
 pub fn parse_node(id: u32, get: impl Fn(&str) -> Option<String>) -> Option<NodeInfo> {
     let name = get("node.name")?;
-    let description = get("node.description").or_else(|| get("node.nick")).unwrap_or_else(|| name.clone());
-    Some(NodeInfo { id, name, description, media_class: get("media.class").unwrap_or_default() })
+    let description = get("node.description")
+        .or_else(|| get("node.nick"))
+        .unwrap_or_else(|| name.clone());
+    Some(NodeInfo {
+        id,
+        name,
+        description,
+        media_class: get("media.class").unwrap_or_default(),
+    })
 }
 
 pub fn parse_port(id: u32, get: impl Fn(&str) -> Option<String>) -> Option<PortInfo> {
@@ -85,9 +92,17 @@ pub fn parse_port(id: u32, get: impl Fn(&str) -> Option<String>) -> Option<PortI
         "out" => Direction::Out,
         _ => return None,
     };
-    let channel = get("audio.channel").unwrap_or_else(|| name.rsplit('_').next().unwrap_or_default().to_owned());
+    let channel = get("audio.channel")
+        .unwrap_or_else(|| name.rsplit('_').next().unwrap_or_default().to_owned());
     let monitor = get("port.monitor").as_deref() == Some("true");
-    Some(PortInfo { id, node, name, direction, channel, monitor })
+    Some(PortInfo {
+        id,
+        node,
+        name,
+        direction,
+        channel,
+        monitor,
+    })
 }
 
 pub fn parse_link(id: u32, get: impl Fn(&str) -> Option<String>) -> Option<LinkInfo> {
@@ -171,7 +186,9 @@ impl Graph {
     }
 
     pub fn has_link(&self, output_port: u32, input_port: u32) -> bool {
-        self.links.values().any(|l| l.output_port == output_port && l.input_port == input_port)
+        self.links
+            .values()
+            .any(|l| l.output_port == output_port && l.input_port == input_port)
     }
 
     /// Name of the node `output_node` is currently linked to.
@@ -184,25 +201,37 @@ impl Graph {
     }
 
     pub fn desired_links(&self, plan: &LinkPlan) -> Vec<(u32, u32)> {
-        let Some(mixer) = self.node_by_name(plan.mixer) else { return Vec::new() };
+        let Some(mixer) = self.node_by_name(plan.mixer) else {
+            return Vec::new();
+        };
         let mut out = Vec::new();
         for channel in &plan.channels {
-            let Some(source) = self.node_by_name(channel.node) else { continue };
+            let Some(source) = self.node_by_name(channel.node) else {
+                continue;
+            };
             let sources = self.ports_where(source.id, Direction::Out, |p| match channel.kind {
                 SourceKind::SinkMonitor => p.monitor,
                 SourceKind::Source => !p.monitor,
             });
-            let inputs: Vec<&PortInfo> =
-                ["FL", "FR"].iter().filter_map(|c| self.port_named(mixer.id, &mixer_input_port(channel.slot, c))).collect();
+            let inputs: Vec<&PortInfo> = ["FL", "FR"]
+                .iter()
+                .filter_map(|c| self.port_named(mixer.id, &mixer_input_port(channel.slot, c)))
+                .collect();
             out.extend(pair_ports(&sources, &inputs));
         }
         if let Some(device) = plan.monitor_output.and_then(|name| self.node_by_name(name)) {
-            let outs: Vec<&PortInfo> = MONITOR_OUT.iter().filter_map(|n| self.port_named(mixer.id, n)).collect();
+            let outs: Vec<&PortInfo> = MONITOR_OUT
+                .iter()
+                .filter_map(|n| self.port_named(mixer.id, n))
+                .collect();
             let ins = self.ports_where(device.id, Direction::In, |p| !p.monitor);
             out.extend(pair_ports(&outs, &ins));
         }
         if let Some(stream_mix) = self.node_by_name(plan.stream_mix) {
-            let outs: Vec<&PortInfo> = STREAM_OUT.iter().filter_map(|n| self.port_named(mixer.id, n)).collect();
+            let outs: Vec<&PortInfo> = STREAM_OUT
+                .iter()
+                .filter_map(|n| self.port_named(mixer.id, n))
+                .collect();
             let ins = self.ports_where(stream_mix.id, Direction::In, |_| true);
             out.extend(pair_ports(&outs, &ins));
         }
@@ -210,12 +239,22 @@ impl Graph {
     }
 
     fn port_named(&self, node: u32, name: &str) -> Option<&PortInfo> {
-        self.ports.values().find(|p| p.node == node && p.name == name)
+        self.ports
+            .values()
+            .find(|p| p.node == node && p.name == name)
     }
 
-    fn ports_where(&self, node: u32, direction: Direction, keep: impl Fn(&PortInfo) -> bool) -> Vec<&PortInfo> {
-        let mut ports: Vec<&PortInfo> =
-            self.ports.values().filter(|p| p.node == node && p.direction == direction && keep(p)).collect();
+    fn ports_where(
+        &self,
+        node: u32,
+        direction: Direction,
+        keep: impl Fn(&PortInfo) -> bool,
+    ) -> Vec<&PortInfo> {
+        let mut ports: Vec<&PortInfo> = self
+            .ports
+            .values()
+            .filter(|p| p.node == node && p.direction == direction && keep(p))
+            .collect();
         ports.sort_by(|a, b| a.name.cmp(&b.name));
         ports
     }
@@ -232,7 +271,11 @@ pub fn pair_ports(outs: &[&PortInfo], ins: &[&PortInfo]) -> Vec<(u32, u32)> {
 
     let channel_matches: Vec<(u32, u32)> = ins
         .iter()
-        .filter_map(|input| outs.iter().find(|o| o.channel == input.channel).map(|output| (output.id, input.id)))
+        .filter_map(|input| {
+            outs.iter()
+                .find(|o| o.channel == input.channel)
+                .map(|output| (output.id, input.id))
+        })
         .collect();
     if !channel_matches.is_empty() {
         return channel_matches;
@@ -243,7 +286,10 @@ pub fn pair_ports(outs: &[&PortInfo], ins: &[&PortInfo]) -> Vec<(u32, u32)> {
     if let [output] = outs[..] {
         return ins.iter().map(|input| (output.id, input.id)).collect();
     }
-    ins.iter().enumerate().filter_map(|(index, input)| outs.get(index).map(|output| (output.id, input.id))).collect()
+    ins.iter()
+        .enumerate()
+        .filter_map(|(index, input)| outs.get(index).map(|output| (output.id, input.id)))
+        .collect()
 }
 
 #[cfg(test)]
@@ -252,11 +298,23 @@ mod tests {
 
     fn port(id: u32, node: u32, name: &str, direction: Direction, monitor: bool) -> PortInfo {
         let channel = name.rsplit('_').next().unwrap().to_owned();
-        PortInfo { id, node, name: name.into(), direction, channel, monitor }
+        PortInfo {
+            id,
+            node,
+            name: name.into(),
+            direction,
+            channel,
+            monitor,
+        }
     }
 
     fn node(id: u32, name: &str, class: &str) -> NodeInfo {
-        NodeInfo { id, name: name.into(), description: name.into(), media_class: class.into() }
+        NodeInfo {
+            id,
+            name: name.into(),
+            description: name.into(),
+            media_class: class.into(),
+        }
     }
 
     /// mixer(10), channel sink(20), stream mix(30), headphones(40), xlr mic(50)
@@ -265,7 +323,13 @@ mod tests {
         g.add_node(node(10, MIXER_NODE, ""));
         for slot in 0..2 {
             for (i, ch) in ["FL", "FR"].iter().enumerate() {
-                g.add_port(port(100 + slot as u32 * 2 + i as u32, 10, &mixer_input_port(slot, ch), Direction::In, false));
+                g.add_port(port(
+                    100 + slot as u32 * 2 + i as u32,
+                    10,
+                    &mixer_input_port(slot, ch),
+                    Direction::In,
+                    false,
+                ));
             }
         }
         for (i, name) in MONITOR_OUT.iter().chain(STREAM_OUT.iter()).enumerate() {
@@ -297,8 +361,16 @@ mod tests {
             stream_mix: STREAM_MIX_NODE,
             monitor_output,
             channels: vec![
-                ChannelLink { slot: 0, node: "wavelink.channel.music", kind: SourceKind::SinkMonitor },
-                ChannelLink { slot: 1, node: "alsa_input.xlr", kind: SourceKind::Source },
+                ChannelLink {
+                    slot: 0,
+                    node: "wavelink.channel.music",
+                    kind: SourceKind::SinkMonitor,
+                },
+                ChannelLink {
+                    slot: 1,
+                    node: "alsa_input.xlr",
+                    kind: SourceKind::Source,
+                },
             ],
         }
     }
@@ -310,10 +382,14 @@ mod tests {
         assert_eq!(
             links,
             vec![
-                (110, 400), (111, 401),             // monitor_FL/FR → headphones
-                (112, 300), (113, 301),             // stream_FL/FR → stream mix
-                (202, 100), (203, 101),             // music monitor → in_01
-                (500, 102), (500, 103),             // mono mic → in_02 FL+FR
+                (110, 400),
+                (111, 401), // monitor_FL/FR → headphones
+                (112, 300),
+                (113, 301), // stream_FL/FR → stream mix
+                (202, 100),
+                (203, 101), // music monitor → in_01
+                (500, 102),
+                (500, 103), // mono mic → in_02 FL+FR
             ]
         );
     }
@@ -331,18 +407,27 @@ mod tests {
     fn device_appearing_later_gets_linked() {
         let mut g = graph();
         g.remove(40);
-        assert!(!g.desired_links(&plan(Some("alsa_output.headphones"))).contains(&(110, 400)));
+        assert!(
+            !g.desired_links(&plan(Some("alsa_output.headphones")))
+                .contains(&(110, 400))
+        );
         g.add_node(node(41, "alsa_output.headphones", "Audio/Sink"));
         g.add_port(port(410, 41, "playback_FL", Direction::In, false));
         g.add_port(port(411, 41, "playback_FR", Direction::In, false));
-        assert!(g.desired_links(&plan(Some("alsa_output.headphones"))).contains(&(110, 410)));
+        assert!(
+            g.desired_links(&plan(Some("alsa_output.headphones")))
+                .contains(&(110, 410))
+        );
     }
 
     #[test]
     fn no_mixer_means_no_links() {
         let mut g = graph();
         g.remove(10);
-        assert!(g.desired_links(&plan(Some("alsa_output.headphones"))).is_empty());
+        assert!(
+            g.desired_links(&plan(Some("alsa_output.headphones")))
+                .is_empty()
+        );
     }
 
     #[test]
@@ -351,12 +436,21 @@ mod tests {
         let fr = port(2, 1, "out_FR", Direction::Out, false);
         let in_fl = port(3, 2, "in_FL", Direction::In, false);
         let in_fr = port(4, 2, "in_FR", Direction::In, false);
-        assert_eq!(pair_ports(&[&fr, &fl], &[&in_fl, &in_fr]), vec![(1, 3), (2, 4)]);
+        assert_eq!(
+            pair_ports(&[&fr, &fl], &[&in_fl, &in_fr]),
+            vec![(1, 3), (2, 4)]
+        );
         let mono = port(5, 1, "capture_MONO", Direction::Out, false);
-        assert_eq!(pair_ports(&[&mono], &[&in_fl, &in_fr]), vec![(5, 3), (5, 4)]);
+        assert_eq!(
+            pair_ports(&[&mono], &[&in_fl, &in_fr]),
+            vec![(5, 3), (5, 4)]
+        );
         let a = port(6, 1, "out_AUX0", Direction::Out, false);
         let b = port(7, 1, "out_AUX1", Direction::Out, false);
-        assert_eq!(pair_ports(&[&a, &b], &[&in_fl, &in_fr]), vec![(6, 3), (7, 4)]);
+        assert_eq!(
+            pair_ports(&[&a, &b], &[&in_fl, &in_fr]),
+            vec![(6, 3), (7, 4)]
+        );
     }
 
     #[test]
@@ -369,8 +463,10 @@ mod tests {
         let in_lfe = port(13, 2, "playback_LFE", Direction::In, false);
         let in_rl = port(14, 2, "playback_RL", Direction::In, false);
         let in_rr = port(15, 2, "playback_RR", Direction::In, false);
-        let mut links =
-            pair_ports(&[&out_fl, &out_fr], &[&in_fc, &in_fl, &in_fr, &in_lfe, &in_rl, &in_rr]);
+        let mut links = pair_ports(
+            &[&out_fl, &out_fr],
+            &[&in_fc, &in_fl, &in_fr, &in_lfe, &in_rl, &in_rr],
+        );
         links.sort();
         assert_eq!(links, vec![(1, 11), (2, 12)]);
     }
@@ -389,7 +485,13 @@ mod tests {
     fn link_target_and_removal() {
         let mut g = graph();
         g.add_node(node(60, "Firefox", "Stream/Output/Audio"));
-        g.add_link(LinkInfo { id: 70, output_node: 60, output_port: 600, input_node: 20, input_port: 200 });
+        g.add_link(LinkInfo {
+            id: 70,
+            output_node: 60,
+            output_port: 600,
+            input_node: 20,
+            input_port: 200,
+        });
         assert_eq!(g.link_target(60), Some("wavelink.channel.music"));
         assert!(g.has_link(600, 200));
         assert!(matches!(g.remove(70), Removed::Link(_)));
@@ -409,18 +511,66 @@ mod tests {
     #[test]
     fn parsing_globals() {
         let get = |pairs: &'static [(&'static str, &'static str)]| {
-            move |k: &str| pairs.iter().find(|(key, _)| *key == k).map(|(_, v)| v.to_string())
+            move |k: &str| {
+                pairs
+                    .iter()
+                    .find(|(key, _)| *key == k)
+                    .map(|(_, v)| v.to_string())
+            }
         };
-        let p = parse_port(9, get(&[("node.id", "4"), ("port.name", "monitor_FR"), ("port.direction", "out"), ("port.monitor", "true")])).unwrap();
-        assert_eq!((p.node, p.channel.as_str(), p.direction, p.monitor), (4, "FR", Direction::Out, true));
-        let n = parse_node(4, get(&[("node.name", "alsa_output.x"), ("node.nick", "Nick"), ("media.class", "Audio/Sink")])).unwrap();
+        let p = parse_port(
+            9,
+            get(&[
+                ("node.id", "4"),
+                ("port.name", "monitor_FR"),
+                ("port.direction", "out"),
+                ("port.monitor", "true"),
+            ]),
+        )
+        .unwrap();
+        assert_eq!(
+            (p.node, p.channel.as_str(), p.direction, p.monitor),
+            (4, "FR", Direction::Out, true)
+        );
+        let n = parse_node(
+            4,
+            get(&[
+                ("node.name", "alsa_output.x"),
+                ("node.nick", "Nick"),
+                ("media.class", "Audio/Sink"),
+            ]),
+        )
+        .unwrap();
         assert_eq!(n.description, "Nick");
         assert_eq!(n.device_kind(), Some(DeviceKind::Sink));
-        let ours = parse_node(5, get(&[("node.name", "wavelink.channel.music"), ("media.class", "Audio/Sink")])).unwrap();
+        let ours = parse_node(
+            5,
+            get(&[
+                ("node.name", "wavelink.channel.music"),
+                ("media.class", "Audio/Sink"),
+            ]),
+        )
+        .unwrap();
         assert_eq!(ours.device_kind(), None);
-        let s = parse_node(6, get(&[("node.name", "Firefox"), ("media.class", "Stream/Output/Audio")])).unwrap();
+        let s = parse_node(
+            6,
+            get(&[
+                ("node.name", "Firefox"),
+                ("media.class", "Stream/Output/Audio"),
+            ]),
+        )
+        .unwrap();
         assert!(s.is_app_stream());
-        let l = parse_link(7, get(&[("link.output.node", "1"), ("link.output.port", "2"), ("link.input.node", "3"), ("link.input.port", "4")])).unwrap();
+        let l = parse_link(
+            7,
+            get(&[
+                ("link.output.node", "1"),
+                ("link.output.port", "2"),
+                ("link.input.node", "3"),
+                ("link.input.port", "4"),
+            ]),
+        )
+        .unwrap();
         assert_eq!((l.output_port, l.input_node), (2, 3));
         assert!(parse_port(8, get(&[("port.name", "x")])).is_none());
     }

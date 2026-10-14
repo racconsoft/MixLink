@@ -35,16 +35,25 @@ pub enum LoadOutcome {
     /// No config existed; defaults were created (first run).
     Created(Config),
     /// The file was unusable; it was copied to `backup` and defaults are used.
-    Recovered { config: Config, backup: PathBuf, error: String },
+    Recovered {
+        config: Config,
+        backup: PathBuf,
+        error: String,
+    },
 }
 
 pub fn load(path: &Path) -> LoadOutcome {
     let text = match fs::read_to_string(path) {
         Ok(text) => text,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return LoadOutcome::Created(default_config()),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            return LoadOutcome::Created(default_config());
+        }
         Err(e) => return recover(path, e.to_string()),
     };
-    match toml::from_str::<Config>(&text).map_err(|e| e.to_string()).and_then(validate) {
+    match toml::from_str::<Config>(&text)
+        .map_err(|e| e.to_string())
+        .and_then(validate)
+    {
         Ok(config) => LoadOutcome::Loaded(config),
         Err(error) => recover(path, error),
     }
@@ -55,7 +64,10 @@ fn validate(config: Config) -> Result<Config, String> {
         return Err("config has no channels".into());
     }
     if config.channel(&config.fallback_channel).is_none() {
-        return Err(format!("fallback channel '{}' does not exist", config.fallback_channel));
+        return Err(format!(
+            "fallback channel '{}' does not exist",
+            config.fallback_channel
+        ));
     }
     let mut ids = HashSet::new();
     if let Some(dup) = config.channels.iter().find(|c| !ids.insert(c.id.as_str())) {
@@ -69,7 +81,11 @@ fn recover(path: &Path, error: String) -> LoadOutcome {
     if let Err(e) = fs::copy(path, &backup) {
         tracing::warn!("could not back up {}: {e}", path.display());
     }
-    LoadOutcome::Recovered { config: default_config(), backup, error }
+    LoadOutcome::Recovered {
+        config: default_config(),
+        backup,
+        error,
+    }
 }
 
 /// Writes the config atomically (temp file + rename).
@@ -94,7 +110,10 @@ mod tests {
             LoadOutcome::Created(c) => {
                 assert_eq!(c.fallback_channel, "system");
                 let ids: Vec<&str> = c.channels.iter().map(|c| c.id.as_str()).collect();
-                assert_eq!(ids, vec!["system", "game", "browser", "voice-chat", "music"]);
+                assert_eq!(
+                    ids,
+                    vec!["system", "game", "browser", "voice-chat", "music"]
+                );
             }
             other => panic!("unexpected {other:?}"),
         }
@@ -120,9 +139,16 @@ mod tests {
         let path = dir.path().join("config.toml");
         std::fs::write(&path, "this is = = not toml").unwrap();
         match load(&path) {
-            LoadOutcome::Recovered { config, backup, error } => {
+            LoadOutcome::Recovered {
+                config,
+                backup,
+                error,
+            } => {
                 assert_eq!(config, default_config());
-                assert_eq!(std::fs::read_to_string(backup).unwrap(), "this is = = not toml");
+                assert_eq!(
+                    std::fs::read_to_string(backup).unwrap(),
+                    "this is = = not toml"
+                );
                 assert!(!error.is_empty());
             }
             other => panic!("unexpected {other:?}"),
@@ -133,7 +159,11 @@ mod tests {
     fn missing_fallback_channel_is_invalid() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.toml");
-        std::fs::write(&path, "fallback_channel = \"ghost\"\n[[channels]]\nid = \"a\"\nname = \"A\"\n").unwrap();
+        std::fs::write(
+            &path,
+            "fallback_channel = \"ghost\"\n[[channels]]\nid = \"a\"\nname = \"A\"\n",
+        )
+        .unwrap();
         assert!(matches!(load(&path), LoadOutcome::Recovered { .. }));
     }
 

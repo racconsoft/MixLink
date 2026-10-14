@@ -16,15 +16,25 @@ pub enum ChannelSource {
 #[derive(Debug, Clone, PartialEq)]
 pub enum BackendCommand {
     /// Create or update the channel bound to mixer slot `slot`.
-    EnsureChannel { id: ChannelId, slot: usize, description: String, source: ChannelSource },
-    RemoveChannel { id: ChannelId },
+    EnsureChannel {
+        id: ChannelId,
+        slot: usize,
+        description: String,
+        source: ChannelSource,
+    },
+    RemoveChannel {
+        id: ChannelId,
+    },
     SetTargets(Targets),
     /// `node.name` of the playback device for the monitor mix.
     SetMonitorOutput(Option<String>),
     /// `node.name` to configure as default sink; `None` clears the setting.
     SetDefaultSink(Option<String>),
     /// Move a stream to the node named `target` (deferred until it exists).
-    MoveStream { node_id: u32, target: String },
+    MoveStream {
+        node_id: u32,
+        target: String,
+    },
     Shutdown,
 }
 
@@ -40,7 +50,9 @@ pub struct StreamInfo {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum BackendEvent {
-    Ready { previous_default_sink: Option<String> },
+    Ready {
+        previous_default_sink: Option<String>,
+    },
     /// A new stream or a change to a known one.
     StreamUpdated(StreamInfo),
     StreamRemoved(u32),

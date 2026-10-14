@@ -15,7 +15,11 @@ pub fn config() -> Config {
         listen: MixKind::Monitor,
         settings: Default::default(),
         mixes: Default::default(),
-        channels: vec![Channel::new("system", "System"), music, Channel::new("voice-chat", "Voice Chat")],
+        channels: vec![
+            Channel::new("system", "System"),
+            music,
+            Channel::new("voice-chat", "Voice Chat"),
+        ],
     }
 }
 
@@ -27,7 +31,9 @@ pub fn app() -> (App<FakeBackend>, FakeBackend) {
 /// An app that has seen `Ready` and has empty dirty flags and command log.
 pub fn ready_app() -> (App<FakeBackend>, FakeBackend) {
     let (mut app, fake) = app();
-    app.on_backend_event(BackendEvent::Ready { previous_default_sink: Some("alsa_output.headphones".into()) });
+    app.on_backend_event(BackendEvent::Ready {
+        previous_default_sink: Some("alsa_output.headphones".into()),
+    });
     fake.take();
     app.take_config_dirty();
     app.take_state_dirty();
@@ -35,17 +41,33 @@ pub fn ready_app() -> (App<FakeBackend>, FakeBackend) {
 }
 
 pub fn stream(node_id: u32, app: &str, target: Option<&str>) -> StreamInfo {
-    StreamInfo { node_id, app: app.into(), name: app.into(), icon: None, target: target.map(Into::into) }
+    StreamInfo {
+        node_id,
+        app: app.into(),
+        name: app.into(),
+        icon: None,
+        target: target.map(Into::into),
+    }
 }
 
 pub fn device(name: &str, description: &str, kind: DeviceKind) -> Device {
-    Device { name: name.into(), description: description.into(), kind }
+    Device {
+        name: name.into(),
+        description: description.into(),
+        kind,
+    }
 }
 
 pub fn last_targets(cmds: &[BackendCommand]) -> Targets {
     cmds.iter()
         .rev()
-        .find_map(|c| if let BackendCommand::SetTargets(t) = c { Some(*t) } else { None })
+        .find_map(|c| {
+            if let BackendCommand::SetTargets(t) = c {
+                Some(*t)
+            } else {
+                None
+            }
+        })
         .expect("no SetTargets sent")
 }
 

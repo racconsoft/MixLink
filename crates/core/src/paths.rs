@@ -17,7 +17,10 @@ pub fn socket_path_from(env: impl Fn(&str) -> Option<String>) -> PathBuf {
     if let Some(dir) = env("XDG_RUNTIME_DIR") {
         return PathBuf::from(dir).join("wavelink.sock");
     }
-    PathBuf::from(format!("/tmp/wavelink-{}.sock", env("USER").unwrap_or_else(|| "user".into())))
+    PathBuf::from(format!(
+        "/tmp/wavelink-{}.sock",
+        env("USER").unwrap_or_else(|| "user".into())
+    ))
 }
 
 pub fn config_path_from(env: impl Fn(&str) -> Option<String>) -> PathBuf {
@@ -27,7 +30,9 @@ pub fn config_path_from(env: impl Fn(&str) -> Option<String>) -> PathBuf {
     }
     let base = env("XDG_CONFIG_HOME")
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(env("HOME").unwrap_or_else(|| ".".into())).join(".config"));
+        .unwrap_or_else(|| {
+            PathBuf::from(env("HOME").unwrap_or_else(|| ".".into())).join(".config")
+        });
     base.join("wavelink-linux").join("config.toml")
 }
 
@@ -37,23 +42,35 @@ mod tests {
     use std::collections::HashMap;
 
     fn env(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
-        let map: HashMap<String, String> = pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        let map: HashMap<String, String> = pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
         move |k| map.get(k).cloned()
     }
 
     #[test]
     fn socket_prefers_override_then_runtime_dir() {
-        assert_eq!(socket_path_from(env(&[("WAVELINK_SOCKET", "/x.sock")])), PathBuf::from("/x.sock"));
+        assert_eq!(
+            socket_path_from(env(&[("WAVELINK_SOCKET", "/x.sock")])),
+            PathBuf::from("/x.sock")
+        );
         assert_eq!(
             socket_path_from(env(&[("XDG_RUNTIME_DIR", "/run/user/1000")])),
             PathBuf::from("/run/user/1000/wavelink.sock")
         );
-        assert_eq!(socket_path_from(env(&[("USER", "bob")])), PathBuf::from("/tmp/wavelink-bob.sock"));
+        assert_eq!(
+            socket_path_from(env(&[("USER", "bob")])),
+            PathBuf::from("/tmp/wavelink-bob.sock")
+        );
     }
 
     #[test]
     fn config_prefers_override_then_xdg_then_home() {
-        assert_eq!(config_path_from(env(&[("WAVELINK_CONFIG", "/c.toml")])), PathBuf::from("/c.toml"));
+        assert_eq!(
+            config_path_from(env(&[("WAVELINK_CONFIG", "/c.toml")])),
+            PathBuf::from("/c.toml")
+        );
         assert_eq!(
             config_path_from(env(&[("XDG_CONFIG_HOME", "/cfg"), ("HOME", "/home/a")])),
             PathBuf::from("/cfg/wavelink-linux/config.toml")

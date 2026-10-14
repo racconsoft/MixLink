@@ -4,15 +4,18 @@ use std::time::Duration;
 
 use serde_json::Value;
 use tokio::sync::{broadcast, mpsc, oneshot};
-use tokio::time::{sleep_until, Instant};
+use tokio::time::{Instant, sleep_until};
 use wavelink_core::model::Config;
-use wavelink_core::protocol::{to_line, Command, ErrorBody};
+use wavelink_core::protocol::{Command, ErrorBody, to_line};
 
 use crate::app::App;
 use crate::backend::{AudioBackend, BackendEvent};
 
 pub enum ActorMsg {
-    Command { command: Command, reply: oneshot::Sender<Result<Value, ErrorBody>> },
+    Command {
+        command: Command,
+        reply: oneshot::Sender<Result<Value, ErrorBody>>,
+    },
     Shutdown,
 }
 
@@ -58,7 +61,9 @@ pub async fn run_actor<B: AudioBackend>(
             }
         }
         if app.take_state_dirty() {
-            let _ = channels.broadcast.send(Broadcast::State(to_line(&app.state_event()).into()));
+            let _ = channels
+                .broadcast
+                .send(Broadcast::State(to_line(&app.state_event()).into()));
         }
         if app.take_config_dirty() {
             save_at = Some(Instant::now() + save_delay);
@@ -77,8 +82,8 @@ mod tests {
 
     use wavelink_core::model::{Channel, MixKind, MixTarget};
 
-    use crate::backend::fake::FakeBackend;
     use crate::backend::BackendCommand;
+    use crate::backend::fake::FakeBackend;
 
     fn config() -> Config {
         Config {
@@ -87,7 +92,10 @@ mod tests {
             listen: MixKind::Monitor,
             settings: Default::default(),
             mixes: Default::default(),
-            channels: vec![Channel::new("system", "System"), Channel::new("music", "Music")],
+            channels: vec![
+                Channel::new("system", "System"),
+                Channel::new("music", "Music"),
+            ],
         }
     }
 
@@ -107,17 +115,29 @@ mod tests {
         let recorded = saves.clone();
         let actor = tokio::spawn(run_actor(
             App::new(config(), fake.clone(), false),
-            ActorChannels { msgs, backend_events, broadcast },
+            ActorChannels {
+                msgs,
+                backend_events,
+                broadcast,
+            },
             move |c: &Config| recorded.lock().unwrap().push(c.channels[1].stream.volume),
             Duration::from_millis(500),
         ));
 
         for v in 0..20u8 {
-            let cmd = Command::SetVolume { channel: "music".into(), mix: MixTarget::Stream, value: Some(v), delta: None };
+            let cmd = Command::SetVolume {
+                channel: "music".into(),
+                mix: MixTarget::Stream,
+                value: Some(v),
+                delta: None,
+            };
             call(&tx, cmd).await.unwrap();
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
-        assert!(saves.lock().unwrap().is_empty(), "no save while changes keep coming");
+        assert!(
+            saves.lock().unwrap().is_empty(),
+            "no save while changes keep coming"
+        );
         tokio::time::sleep(Duration::from_millis(600)).await;
         assert_eq!(*saves.lock().unwrap(), vec![19]);
         assert!(matches!(bc_rx.recv().await.unwrap(), Broadcast::State(_)));
@@ -136,11 +156,22 @@ mod tests {
         let recorded = saves.clone();
         let actor = tokio::spawn(run_actor(
             App::new(config(), FakeBackend::new(), false),
-            ActorChannels { msgs, backend_events, broadcast },
+            ActorChannels {
+                msgs,
+                backend_events,
+                broadcast,
+            },
             move |_: &Config| *recorded.lock().unwrap() += 1,
             Duration::from_millis(500),
         ));
-        call(&tx, Command::SetListen { mix: MixKind::Stream }).await.unwrap();
+        call(
+            &tx,
+            Command::SetListen {
+                mix: MixKind::Stream,
+            },
+        )
+        .await
+        .unwrap();
         tx.send(ActorMsg::Shutdown).await.unwrap();
         actor.await.unwrap();
         assert_eq!(*saves.lock().unwrap(), 1);

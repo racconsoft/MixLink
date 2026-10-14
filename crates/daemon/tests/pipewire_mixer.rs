@@ -20,7 +20,10 @@ fn mixer_node_applies_stream_gain_and_reports_peaks() {
 
     let shared = Arc::new(SharedParams::new());
     let mut targets = Targets::default();
-    targets.channels[0] = Gains { monitor: 0.0, stream: 0.5 };
+    targets.channels[0] = Gains {
+        monitor: 0.0,
+        stream: 0.5,
+    };
     shared.store_targets(&targets);
 
     let (done_tx, done_rx) = pw::channel::channel::<()>();
@@ -28,8 +31,14 @@ fn mixer_node_applies_stream_gain_and_reports_peaks() {
     let worker = std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(500));
         for ch in ["FL", "FR"] {
-            support::pw_link(&format!("wltest.ch:monitor_{ch}"), &format!("wltest.mixer:in_01_{ch}"));
-            support::pw_link(&format!("wltest.mixer:stream_{ch}"), &format!("wltest.out:input_{ch}"));
+            support::pw_link(
+                &format!("wltest.ch:monitor_{ch}"),
+                &format!("wltest.mixer:in_01_{ch}"),
+            );
+            support::pw_link(
+                &format!("wltest.mixer:stream_{ch}"),
+                &format!("wltest.out:input_{ch}"),
+            );
         }
         let recorder = support::start_record(&rec_w, "wltest.out");
         std::thread::sleep(Duration::from_millis(300));
@@ -54,6 +63,14 @@ fn mixer_node_applies_stream_gain_and_reports_peaks() {
     let peak = support::wav_peak(&rec);
     assert!((peak - 0.25).abs() < 0.02, "recorded peak {peak}");
     // Nothing took the peaks during playback, so they hold the maxima of the whole run.
-    assert!((peaks.channels[0][0] - 0.5).abs() < 0.05, "pre-fader channel peak {:?}", peaks.channels[0]);
-    assert!((peaks.stream[0] - 0.25).abs() < 0.05, "stream peak {:?}", peaks.stream);
+    assert!(
+        (peaks.channels[0][0] - 0.5).abs() < 0.05,
+        "pre-fader channel peak {:?}",
+        peaks.channels[0]
+    );
+    assert!(
+        (peaks.stream[0] - 0.25).abs() < 0.05,
+        "stream peak {:?}",
+        peaks.stream
+    );
 }

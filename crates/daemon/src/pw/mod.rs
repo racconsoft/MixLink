@@ -38,7 +38,11 @@ impl PipeWireBackend {
                 let _ = stop_tx.send(());
             })
             .expect("spawning the PipeWire thread");
-        Self { commands, shared, stopped: Arc::new(Mutex::new(Some(stop_rx))) }
+        Self {
+            commands,
+            shared,
+            stopped: Arc::new(Mutex::new(Some(stop_rx))),
+        }
     }
 
     /// Waits for the PipeWire thread to finish after a `Shutdown` command.
@@ -80,7 +84,9 @@ fn thread_main(
                 tracing::warn!("lost the connection to PipeWire; reconnecting");
                 let _ = events.send(BackendEvent::Disconnected);
             }
-            session::SessionEnd::ConnectFailed(e) => tracing::warn!("cannot connect to PipeWire: {e}"),
+            session::SessionEnd::ConnectFailed(e) => {
+                tracing::warn!("cannot connect to PipeWire: {e}")
+            }
         }
         if started.elapsed() >= STABLE_SESSION {
             backoff = BACKOFF_START;

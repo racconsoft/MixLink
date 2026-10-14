@@ -19,7 +19,12 @@ pub struct Targets {
 
 impl Default for Targets {
     fn default() -> Self {
-        Self { channels: [Gains::default(); MAX_CHANNELS], monitor_master: 1.0, stream_master: 1.0, listen_stream: false }
+        Self {
+            channels: [Gains::default(); MAX_CHANNELS],
+            monitor_master: 1.0,
+            stream_master: 1.0,
+            listen_stream: false,
+        }
     }
 }
 
@@ -75,9 +80,23 @@ fn approach(current: f32, target: f32, step: f32) -> f32 {
     }
 }
 
-pub fn process(state: &mut DspState, targets: &Targets, block: Block<'_>, step: f32, peaks: &mut Peaks) {
-    let Block { inputs, monitor: [mon_l, mon_r], stream: [str_l, str_r] } = block;
-    let n = mon_l.len().min(mon_r.len()).min(str_l.len()).min(str_r.len());
+pub fn process(
+    state: &mut DspState,
+    targets: &Targets,
+    block: Block<'_>,
+    step: f32,
+    peaks: &mut Peaks,
+) {
+    let Block {
+        inputs,
+        monitor: [mon_l, mon_r],
+        stream: [str_l, str_r],
+    } = block;
+    let n = mon_l
+        .len()
+        .min(mon_r.len())
+        .min(str_l.len())
+        .min(str_r.len());
     let listen_target = if targets.listen_stream { 1.0 } else { 0.0 };
     for i in 0..n {
         let (mut ml, mut mr, mut sl, mut sr) = (0.0f32, 0.0f32, 0.0f32, 0.0f32);
@@ -122,18 +141,30 @@ mod tests {
 
     type Out = ([Vec<f32>; 2], [Vec<f32>; 2], Peaks);
 
-    fn run(state: &mut DspState, targets: &Targets, inputs: &[(usize, f32)], n: usize, step: f32) -> Out {
-        let bufs: Vec<(usize, Vec<f32>)> = inputs.iter().map(|&(slot, v)| (slot, vec![v; n])).collect();
+    fn run(
+        state: &mut DspState,
+        targets: &Targets,
+        inputs: &[(usize, f32)],
+        n: usize,
+        step: f32,
+    ) -> Out {
+        let bufs: Vec<(usize, Vec<f32>)> =
+            inputs.iter().map(|&(slot, v)| (slot, vec![v; n])).collect();
         let mut ins: [[Option<&[f32]>; 2]; MAX_CHANNELS] = [[None; 2]; MAX_CHANNELS];
         for (slot, b) in &bufs {
             ins[*slot] = [Some(b.as_slice()), Some(b.as_slice())];
         }
-        let (mut ml, mut mr, mut sl, mut sr) = (vec![9.0; n], vec![9.0; n], vec![9.0; n], vec![9.0; n]);
+        let (mut ml, mut mr, mut sl, mut sr) =
+            (vec![9.0; n], vec![9.0; n], vec![9.0; n], vec![9.0; n]);
         let mut peaks = Peaks::default();
         process(
             state,
             targets,
-            Block { inputs: ins, monitor: [&mut ml[..], &mut mr[..]], stream: [&mut sl[..], &mut sr[..]] },
+            Block {
+                inputs: ins,
+                monitor: [&mut ml[..], &mut mr[..]],
+                stream: [&mut sl[..], &mut sr[..]],
+            },
             step,
             &mut peaks,
         );
@@ -152,13 +183,26 @@ mod tests {
     fn unity_gain_passes_signal_to_both_mixes() {
         let t = targets(&[(0, 1.0, 1.0)]);
         let (mon, st, _) = run(&mut DspState::settled(&t), &t, &[(0, 0.5)], 8, 0.1);
-        assert!(mon[0].iter().chain(&mon[1]).chain(&st[0]).chain(&st[1]).all(|&s| (s - 0.5).abs() < 1e-6));
+        assert!(
+            mon[0]
+                .iter()
+                .chain(&mon[1])
+                .chain(&st[0])
+                .chain(&st[1])
+                .all(|&s| (s - 0.5).abs() < 1e-6)
+        );
     }
 
     #[test]
     fn channels_are_summed() {
         let t = targets(&[(0, 1.0, 1.0), (1, 1.0, 1.0)]);
-        let (mon, _, _) = run(&mut DspState::settled(&t), &t, &[(0, 0.25), (1, 0.5)], 4, 0.1);
+        let (mon, _, _) = run(
+            &mut DspState::settled(&t),
+            &t,
+            &[(0, 0.25), (1, 0.5)],
+            4,
+            0.1,
+        );
         assert!((mon[0][3] - 0.75).abs() < 1e-6);
     }
 

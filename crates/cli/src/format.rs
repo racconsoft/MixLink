@@ -25,28 +25,63 @@ pub fn parse_level(input: &str) -> Result<LevelArg, String> {
 }
 
 fn level(l: &Level) -> String {
-    if l.muted { format!("{} (muted)", l.volume) } else { l.volume.to_string() }
+    if l.muted {
+        format!("{} (muted)", l.volume)
+    } else {
+        l.volume.to_string()
+    }
 }
 
 pub fn format_channel(c: &Channel) -> String {
-    format!("{}: monitor {}, stream {}", c.name, level(&c.monitor), level(&c.stream))
+    format!(
+        "{}: monitor {}, stream {}",
+        c.name,
+        level(&c.monitor),
+        level(&c.stream)
+    )
 }
 
 pub fn format_status(state: &State) -> String {
     let config = &state.config;
     let mut out = String::new();
-    let _ = writeln!(out, "{:<18} {:<12} {:<12} APPS", "CHANNEL", "MONITOR", "STREAM");
+    let _ = writeln!(
+        out,
+        "{:<18} {:<12} {:<12} APPS",
+        "CHANNEL", "MONITOR", "STREAM"
+    );
     for c in &config.channels {
-        let name = if c.id == config.fallback_channel { format!("{}*", c.name) } else { c.name.clone() };
-        let _ = writeln!(out, "{:<18} {:<12} {:<12} {}", name, level(&c.monitor), level(&c.stream), c.apps.join(", "));
+        let name = if c.id == config.fallback_channel {
+            format!("{}*", c.name)
+        } else {
+            c.name.clone()
+        };
+        let _ = writeln!(
+            out,
+            "{:<18} {:<12} {:<12} {}",
+            name,
+            level(&c.monitor),
+            level(&c.stream),
+            c.apps.join(", ")
+        );
     }
     let _ = writeln!(out);
     let monitor = &config.mixes.monitor;
     let stream = &config.mixes.stream;
     let device = monitor.output_device.as_deref().unwrap_or("(none)");
     let mute = |m: bool| if m { " (muted)" } else { "" };
-    let _ = writeln!(out, "Monitor mix: {}{} → {}", monitor.volume, mute(monitor.muted), device);
-    let _ = writeln!(out, "Stream mix:  {}{} → WaveLink Stream Mix", stream.volume, mute(stream.muted));
+    let _ = writeln!(
+        out,
+        "Monitor mix: {}{} → {}",
+        monitor.volume,
+        mute(monitor.muted),
+        device
+    );
+    let _ = writeln!(
+        out,
+        "Stream mix:  {}{} → WaveLink Stream Mix",
+        stream.volume,
+        mute(stream.muted)
+    );
     let listen = match config.listen {
         MixKind::Monitor => "monitor",
         MixKind::Stream => "stream",
@@ -127,6 +162,9 @@ mod tests {
     #[test]
     fn channel_summary() {
         let s = state();
-        assert_eq!(format_channel(&s.config.channels[1]), "Music: monitor 100, stream 40 (muted)");
+        assert_eq!(
+            format_channel(&s.config.channels[1]),
+            "Music: monitor 100, stream 40 (muted)"
+        );
     }
 }

@@ -1,6 +1,6 @@
 //! The real-time mixer node. pipewire-rs 0.10 has no safe pw_filter wrapper, so this
 //! uses the pipewire-sys FFI: 16 stereo input slots, monitor and stream stereo outputs.
-use std::ffi::{c_void, CString};
+use std::ffi::{CString, c_void};
 use std::ptr;
 use std::sync::Arc;
 
@@ -9,7 +9,7 @@ use pipewire_sys as pws;
 use pw::properties::properties;
 use wavelink_core::model::MAX_CHANNELS;
 
-use super::graph::{mixer_input_port, MONITOR_OUT, STREAM_OUT};
+use super::graph::{MONITOR_OUT, STREAM_OUT, mixer_input_port};
 use crate::mixer::dsp::{self, Block, DspState, Peaks};
 use crate::mixer::shared::SharedParams;
 
@@ -38,7 +38,11 @@ pub struct MixerNode {
 }
 
 impl MixerNode {
-    pub fn new(core: &pw::core::CoreRc, name: &str, shared: Arc<SharedParams>) -> Result<Self, String> {
+    pub fn new(
+        core: &pw::core::CoreRc,
+        name: &str,
+        shared: Arc<SharedParams>,
+    ) -> Result<Self, String> {
         let rt = Box::into_raw(Box::new(RtData {
             shared,
             inputs: [[ptr::null_mut(); 2]; MAX_CHANNELS],
@@ -79,26 +83,51 @@ impl MixerNode {
                 drop(Box::from_raw(rt));
                 return Err("pw_filter_new failed".into());
             }
-            pws::pw_filter_add_listener(filter, &mut *hook as *mut libspa_sys::spa_hook as *mut _, &*events, rt.cast());
+            pws::pw_filter_add_listener(
+                filter,
+                &mut *hook as *mut libspa_sys::spa_hook as *mut _,
+                &*events,
+                rt.cast(),
+            );
             for slot in 0..MAX_CHANNELS {
                 for (c, channel) in ["FL", "FR"].iter().enumerate() {
-                    (*rt).inputs[slot][c] =
-                        add_port(filter, pws::PW_DIRECTION_INPUT, &mixer_input_port(slot, channel), channel);
+                    (*rt).inputs[slot][c] = add_port(
+                        filter,
+                        pws::PW_DIRECTION_INPUT,
+                        &mixer_input_port(slot, channel),
+                        channel,
+                    );
                 }
             }
             for (i, port) in MONITOR_OUT.iter().chain(STREAM_OUT.iter()).enumerate() {
                 let channel = if i % 2 == 0 { "FL" } else { "FR" };
                 (*rt).outputs[i] = add_port(filter, pws::PW_DIRECTION_OUTPUT, port, channel);
             }
-            let missing = (*rt).inputs.iter().flatten().chain((*rt).outputs.iter()).any(|p| p.is_null());
+            let missing = (*rt)
+                .inputs
+                .iter()
+                .flatten()
+                .chain((*rt).outputs.iter())
+                .any(|p| p.is_null());
             let connected = !missing
-                && pws::pw_filter_connect(filter, pws::pw_filter_flags_PW_FILTER_FLAG_RT_PROCESS, ptr::null_mut(), 0) >= 0;
+                && pws::pw_filter_connect(
+                    filter,
+                    pws::pw_filter_flags_PW_FILTER_FLAG_RT_PROCESS,
+                    ptr::null_mut(),
+                    0,
+                ) >= 0;
             if !connected {
                 pws::pw_filter_destroy(filter);
                 drop(Box::from_raw(rt));
                 return Err("creating the mixer ports or connecting the filter failed".into());
             }
-            Ok(Self { filter, rt, _hook: hook, _events: events, _core: core.clone() })
+            Ok(Self {
+                filter,
+                rt,
+                _hook: hook,
+                _events: events,
+                _core: core.clone(),
+            })
         }
     }
 }
@@ -115,7 +144,12 @@ impl Drop for MixerNode {
 }
 
 /// SAFETY: caller passes a valid filter.
-unsafe fn add_port(filter: *mut pws::pw_filter, direction: u32, name: &str, channel: &str) -> *mut c_void {
+unsafe fn add_port(
+    filter: *mut pws::pw_filter,
+    direction: u32,
+    name: &str,
+    channel: &str,
+) -> *mut c_void {
     let props = properties! {
         "format.dsp" => "32 bit float mono audio",
         "port.name" => name,
@@ -142,10 +176,22 @@ unsafe extern "C" fn on_process(data: *mut c_void, position: *mut libspa_sys::sp
     // SAFETY: `data` is the RtData registered in MixerNode::new; only this callback
     // touches its state, scratch and peaks after the filter is connected.
     let rt = unsafe { &mut *(data as *mut RtData) };
-    let (duration, rate) = unsafe { ((*position).clock.duration as usize, (*position).clock.rate.denom) };
+    let (duration, rate) = unsafe {
+        (
+            (*position).clock.duration as usize,
+            (*position).clock.rate.denom,
+        )
+    };
     let n = duration.min(MAX_BLOCK);
     let rate = if rate == 0 { DEFAULT_RATE } else { rate };
-    let RtData { shared, inputs, outputs, state, scratch, peaks } = rt;
+    let RtData {
+        shared,
+        inputs,
+        outputs,
+        state,
+        scratch,
+        peaks,
+    } = rt;
 
     let targets = shared.load_targets();
     let mut ins: [[Option<&[f32]>; 2]; MAX_CHANNELS] = [[None; 2]; MAX_CHANNELS];
@@ -165,7 +211,11 @@ unsafe extern "C" fn on_process(data: *mut c_void, position: *mut libspa_sys::sp
         dsp::process(
             state,
             &targets,
-            Block { inputs: ins, monitor: [&mut m_l[..n], &mut m_r[..n]], stream: [&mut s_l[..n], &mut s_r[..n]] },
+            Block {
+                inputs: ins,
+                monitor: [&mut m_l[..n], &mut m_r[..n]],
+                stream: [&mut s_l[..n], &mut s_r[..n]],
+            },
             dsp::ramp_step(rate),
             peaks,
         );

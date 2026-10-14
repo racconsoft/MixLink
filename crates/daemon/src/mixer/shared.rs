@@ -74,7 +74,10 @@ impl SharedParams {
     pub fn load_targets(&self) -> Targets {
         let mut t = Targets::default();
         for slot in 0..MAX_CHANNELS {
-            t.channels[slot] = Gains { monitor: self.monitor[slot].load(), stream: self.stream[slot].load() };
+            t.channels[slot] = Gains {
+                monitor: self.monitor[slot].load(),
+                stream: self.stream[slot].load(),
+            };
         }
         t.monitor_master = self.monitor_master.load();
         t.stream_master = self.stream_master.load();
@@ -97,7 +100,10 @@ impl SharedParams {
     pub fn take_peaks(&self) -> Peaks {
         let mut p = Peaks::default();
         for slot in 0..MAX_CHANNELS {
-            p.channels[slot] = [self.peak_channels[slot][0].take(), self.peak_channels[slot][1].take()];
+            p.channels[slot] = [
+                self.peak_channels[slot][0].take(),
+                self.peak_channels[slot][1].take(),
+            ];
         }
         p.monitor = [self.peak_monitor[0].take(), self.peak_monitor[1].take()];
         p.stream = [self.peak_stream[0].take(), self.peak_stream[1].take()];
@@ -114,7 +120,10 @@ mod tests {
     fn targets_roundtrip() {
         let shared = SharedParams::new();
         let mut t = Targets::default();
-        t.channels[3] = Gains { monitor: 0.25, stream: 0.5 };
+        t.channels[3] = Gains {
+            monitor: 0.25,
+            stream: 0.5,
+        };
         t.stream_master = 0.75;
         t.listen_stream = true;
         shared.store_targets(&t);

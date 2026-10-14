@@ -35,9 +35,17 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         muted: Option<bool>,
     },
-    SetLink { channel: String, linked: bool },
-    AssignApp { app: String, channel: String },
-    UnassignApp { app: String },
+    SetLink {
+        channel: String,
+        linked: bool,
+    },
+    AssignApp {
+        app: String,
+        channel: String,
+    },
+    UnassignApp {
+        app: String,
+    },
     CreateChannel {
         name: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -45,7 +53,10 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         color: Option<String>,
     },
-    RenameChannel { channel: String, name: String },
+    RenameChannel {
+        channel: String,
+        name: String,
+    },
     UpdateChannel {
         channel: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -53,8 +64,12 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         color: Option<String>,
     },
-    DeleteChannel { channel: String },
-    ReorderChannels { order: Vec<String> },
+    DeleteChannel {
+        channel: String,
+    },
+    ReorderChannels {
+        order: Vec<String>,
+    },
     SetMix {
         mix: MixKind,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -66,8 +81,12 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         output_device: Option<String>,
     },
-    SetListen { mix: MixKind },
-    SetFallbackChannel { channel: String },
+    SetListen {
+        mix: MixKind,
+    },
+    SetFallbackChannel {
+        channel: String,
+    },
     SetSettings {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         auto_xlr_profile: Option<bool>,
@@ -102,7 +121,11 @@ pub struct ErrorBody {
 
 impl ErrorBody {
     pub fn new(code: ErrorCode, message: impl Into<String>) -> Self {
-        Self { code, message: message.into(), options: Vec::new() }
+        Self {
+            code,
+            message: message.into(),
+            options: Vec::new(),
+        }
     }
 
     pub fn invalid(message: impl Into<String>) -> Self {
@@ -116,7 +139,11 @@ impl From<ResolveError> for ErrorBody {
             ResolveError::NotFound { .. } => ErrorCode::NotFound,
             ResolveError::Ambiguous { .. } => ErrorCode::Ambiguous,
         };
-        Self { code, message: e.to_string(), options: e.options().to_vec() }
+        Self {
+            code,
+            message: e.to_string(),
+            options: e.options().to_vec(),
+        }
     }
 }
 
@@ -142,11 +169,21 @@ pub struct Response {
 
 impl Response {
     pub fn ok(id: u64, result: Value) -> Self {
-        Self { id, ok: true, result: Some(result), error: None }
+        Self {
+            id,
+            ok: true,
+            result: Some(result),
+            error: None,
+        }
     }
 
     pub fn err(id: u64, error: ErrorBody) -> Self {
-        Self { id, ok: false, result: None, error: Some(error) }
+        Self {
+            id,
+            ok: false,
+            result: None,
+            error: Some(error),
+        }
     }
 }
 
@@ -191,7 +228,12 @@ mod tests {
         assert_eq!(req.id, 7);
         assert_eq!(
             req.command,
-            Command::SetVolume { channel: "music".into(), mix: MixTarget::Stream, value: None, delta: Some(-10) }
+            Command::SetVolume {
+                channel: "music".into(),
+                mix: MixTarget::Stream,
+                value: None,
+                delta: Some(-10)
+            }
         );
     }
 
@@ -199,7 +241,10 @@ mod tests {
     fn unit_commands_need_no_args() {
         let req: Request = serde_json::from_str(r#"{"id":1,"cmd":"get_state"}"#).unwrap();
         assert_eq!(req.command, Command::GetState);
-        let line = to_line(&Request { id: 2, command: Command::ListApps });
+        let line = to_line(&Request {
+            id: 2,
+            command: Command::ListApps,
+        });
         assert!(line.contains(r#""cmd":"list_apps""#));
         assert!(line.ends_with('\n'));
     }
@@ -222,7 +267,11 @@ mod tests {
 
     #[test]
     fn error_response_carries_code_and_options() {
-        let body: ErrorBody = ResolveError::NotFound { query: "xyz".into(), options: vec!["Music".into()] }.into();
+        let body: ErrorBody = ResolveError::NotFound {
+            query: "xyz".into(),
+            options: vec!["Music".into()],
+        }
+        .into();
         let line = to_line(&Response::err(4, body));
         assert!(line.contains(r#""code":"not_found""#));
         assert!(line.contains(r#""options":["Music"]"#));
@@ -236,16 +285,28 @@ mod tests {
             message: "'gam' is ambiguous".into(),
             options: vec!["Game".into(), "Game Capture".into()],
         };
-        assert_eq!(body.to_string(), "'gam' is ambiguous (options: Game, Game Capture)");
+        assert_eq!(
+            body.to_string(),
+            "'gam' is ambiguous (options: Game, Game Capture)"
+        );
     }
 
     #[test]
     fn server_messages_are_distinguished() {
-        let ev: ServerMessage =
-            serde_json::from_str(r#"{"event":"meters","channels":{"music":[0.5,0.25]},"monitor":[0,0],"stream":[0,0]}"#)
-                .unwrap();
+        let ev: ServerMessage = serde_json::from_str(
+            r#"{"event":"meters","channels":{"music":[0.5,0.25]},"monitor":[0,0],"stream":[0,0]}"#,
+        )
+        .unwrap();
         assert!(matches!(ev, ServerMessage::Event(Event::Meters { .. })));
-        let resp: ServerMessage = serde_json::from_str(r#"{"id":1,"ok":true,"result":null}"#).unwrap();
-        assert!(matches!(resp, ServerMessage::Response(Response { id: 1, ok: true, .. })));
+        let resp: ServerMessage =
+            serde_json::from_str(r#"{"id":1,"ok":true,"result":null}"#).unwrap();
+        assert!(matches!(
+            resp,
+            ServerMessage::Response(Response {
+                id: 1,
+                ok: true,
+                ..
+            })
+        ));
     }
 }

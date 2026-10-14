@@ -42,7 +42,10 @@ pub struct Level {
 
 impl Default for Level {
     fn default() -> Self {
-        Self { volume: 100, muted: false }
+        Self {
+            volume: 100,
+            muted: false,
+        }
     }
 }
 
@@ -140,7 +143,11 @@ pub struct Mix {
 
 impl Default for Mix {
     fn default() -> Self {
-        Self { volume: 100, muted: false, output_device: None }
+        Self {
+            volume: 100,
+            muted: false,
+            output_device: None,
+        }
     }
 }
 
@@ -175,7 +182,9 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { auto_xlr_profile: true }
+        Self {
+            auto_xlr_profile: true,
+        }
     }
 }
 
@@ -300,7 +309,13 @@ enabled = true
         assert_eq!(config.mixes.stream.volume, 80);
         assert_eq!(config.channels.len(), 2);
         let voice = config.channel("voice-chat").unwrap();
-        assert_eq!(voice.stream, Level { volume: 60, muted: true });
+        assert_eq!(
+            voice.stream,
+            Level {
+                volume: 60,
+                muted: true
+            }
+        );
         assert_eq!(voice.apps, vec!["discord", "slack"]);
     }
 
@@ -309,7 +324,13 @@ enabled = true
         let config: Config = toml::from_str(SPEC_EXAMPLE).unwrap();
         let system = config.channel("system").unwrap();
         assert_eq!(system.kind, ChannelKind::Virtual);
-        assert_eq!(system.monitor, Level { volume: 100, muted: false });
+        assert_eq!(
+            system.monitor,
+            Level {
+                volume: 100,
+                muted: false
+            }
+        );
         assert_eq!(system.icon, "default");
         assert!(system.apps.is_empty());
     }
@@ -324,14 +345,20 @@ enabled = true
 
     #[test]
     fn mix_target_expands_to_kinds() {
-        assert_eq!(MixTarget::Both.kinds(), &[MixKind::Monitor, MixKind::Stream]);
+        assert_eq!(
+            MixTarget::Both.kinds(),
+            &[MixKind::Monitor, MixKind::Stream]
+        );
         assert_eq!(MixTarget::Stream.kinds(), &[MixKind::Stream]);
     }
 
     #[test]
     fn node_names_roundtrip() {
         assert_eq!(channel_node_name("music"), "wavelink.channel.music");
-        assert_eq!(channel_id_from_node_name("wavelink.channel.music"), Some("music"));
+        assert_eq!(
+            channel_id_from_node_name("wavelink.channel.music"),
+            Some("music")
+        );
         assert_eq!(channel_id_from_node_name("alsa_output.foo"), None);
     }
 }

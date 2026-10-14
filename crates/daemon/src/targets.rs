@@ -1,5 +1,5 @@
 //! Translates the configuration into mixer targets.
-use wavelink_core::model::{ChannelId, Config, MixKind, MAX_CHANNELS};
+use wavelink_core::model::{ChannelId, Config, MAX_CHANNELS, MixKind};
 use wavelink_core::volume::to_gain;
 
 use crate::mixer::dsp::{Gains, Targets};
@@ -7,7 +7,9 @@ use crate::mixer::dsp::{Gains, Targets};
 pub fn compute_targets(config: &Config, slots: &[Option<ChannelId>; MAX_CHANNELS]) -> Targets {
     let mut t = Targets::default();
     for (slot, id) in slots.iter().enumerate() {
-        let Some(channel) = id.as_deref().and_then(|id| config.channel(id)) else { continue };
+        let Some(channel) = id.as_deref().and_then(|id| config.channel(id)) else {
+            continue;
+        };
         t.channels[slot] = Gains {
             monitor: level_gain(channel.monitor.volume, channel.monitor.muted),
             stream: level_gain(channel.stream.volume, channel.stream.muted),

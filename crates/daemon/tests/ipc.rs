@@ -1,12 +1,12 @@
 use std::time::Duration;
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
-use tokio::net::unix::OwnedReadHalf;
 use tokio::net::UnixStream;
+use tokio::net::unix::OwnedReadHalf;
 use tokio::sync::{broadcast, mpsc};
 use wavelink_core::model::{Channel, Config, MixKind};
 use wavelink_core::protocol::{Event, Response};
-use wavelinkd::actor::{run_actor, ActorChannels};
+use wavelinkd::actor::{ActorChannels, run_actor};
 use wavelinkd::app::App;
 use wavelinkd::backend::fake::FakeBackend;
 use wavelinkd::ipc::{bind_socket, serve};
@@ -18,7 +18,10 @@ fn config() -> Config {
         listen: MixKind::Monitor,
         settings: Default::default(),
         mixes: Default::default(),
-        channels: vec![Channel::new("system", "System"), Channel::new("music", "Music")],
+        channels: vec![
+            Channel::new("system", "System"),
+            Channel::new("music", "Music"),
+        ],
     }
 }
 
@@ -35,7 +38,11 @@ async fn start() -> (tempfile::TempDir, std::path::PathBuf) {
         let _keep_events_open = _ev_tx;
         run_actor(
             App::new(config(), FakeBackend::new(), false),
-            ActorChannels { msgs, backend_events, broadcast: bc },
+            ActorChannels {
+                msgs,
+                backend_events,
+                broadcast: bc,
+            },
             |_: &Config| {},
             Duration::from_millis(500),
         )
@@ -44,7 +51,12 @@ async fn start() -> (tempfile::TempDir, std::path::PathBuf) {
     (dir, path)
 }
 
-async fn connect(path: &std::path::Path) -> (Lines<BufReader<OwnedReadHalf>>, tokio::net::unix::OwnedWriteHalf) {
+async fn connect(
+    path: &std::path::Path,
+) -> (
+    Lines<BufReader<OwnedReadHalf>>,
+    tokio::net::unix::OwnedWriteHalf,
+) {
     let (read, write) = UnixStream::connect(path).await.unwrap().into_split();
     (BufReader::new(read).lines(), write)
 }
@@ -54,7 +66,10 @@ async fn request(
     write: &mut tokio::net::unix::OwnedWriteHalf,
     json: &str,
 ) -> Response {
-    write.write_all(format!("{json}\n").as_bytes()).await.unwrap();
+    write
+        .write_all(format!("{json}\n").as_bytes())
+        .await
+        .unwrap();
     serde_json::from_str(&lines.next_line().await.unwrap().unwrap()).unwrap()
 }
 
@@ -62,7 +77,12 @@ async fn request(
 async fn changes_are_answered_and_broadcast_to_subscribers() {
     let (_dir, path) = start().await;
     let (mut sub_lines, mut sub_write) = connect(&path).await;
-    let resp = request(&mut sub_lines, &mut sub_write, r#"{"id":1,"cmd":"subscribe","args":{"state":true}}"#).await;
+    let resp = request(
+        &mut sub_lines,
+        &mut sub_write,
+        r#"{"id":1,"cmd":"subscribe","args":{"state":true}}"#,
+    )
+    .await;
     assert!(resp.ok);
 
     let (mut lines, mut write) = connect(&path).await;
@@ -75,9 +95,12 @@ async fn changes_are_answered_and_broadcast_to_subscribers() {
     assert!(resp.ok);
     assert_eq!(resp.result.unwrap()["stream"]["volume"], 40);
 
-    let event: Event = serde_json::from_str(&sub_lines.next_line().await.unwrap().unwrap()).unwrap();
+    let event: Event =
+        serde_json::from_str(&sub_lines.next_line().await.unwrap().unwrap()).unwrap();
     match event {
-        Event::StateChanged { state } => assert_eq!(state.config.channel("music").unwrap().stream.volume, 40),
+        Event::StateChanged { state } => {
+            assert_eq!(state.config.channel("music").unwrap().stream.volume, 40)
+        }
         other => panic!("unexpected {other:?}"),
     }
 }
@@ -97,10 +120,18 @@ async fn invalid_json_gets_an_error_response() {
 async fn invalid_request_echoes_recovered_id() {
     let (_dir, path) = start().await;
     let (mut lines, mut write) = connect(&path).await;
-    let resp = request(&mut lines, &mut write, r#"{"id":42,"cmd":"set_vloume","args":{}}"#).await;
+    let resp = request(
+        &mut lines,
+        &mut write,
+        r#"{"id":42,"cmd":"set_vloume","args":{}}"#,
+    )
+    .await;
     assert!(!resp.ok);
     assert_eq!(resp.id, 42);
-    assert_eq!(resp.error.unwrap().code, wavelink_core::protocol::ErrorCode::InvalidArgument);
+    assert_eq!(
+        resp.error.unwrap().code,
+        wavelink_core::protocol::ErrorCode::InvalidArgument
+    );
 }
 
 #[tokio::test]
@@ -141,5 +172,8 @@ async fn socket_is_private() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("wl.sock");
     let _l = bind_socket(&path).unwrap();
-    assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+    assert_eq!(
+        std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
 }
