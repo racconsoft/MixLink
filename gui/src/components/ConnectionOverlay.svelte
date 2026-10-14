@@ -15,7 +15,7 @@
   }
 </script>
 
-{#if !$connected}
+{#if $connected === false}
   <div class="overlay" role="alertdialog" aria-label={t("connection.title")}>
     <div class="box surface">
       <h2>{t("connection.title")}</h2>

@@ -22,7 +22,9 @@
 <div class="app">
   <header class="titlebar">
     <span class="title">{t("app.title")}</span>
-    <span class="conn" class:ok={$connected}>● {$connected ? t("app.connected") : t("app.disconnected")}</span>
+    {#if $connected !== null}
+      <span class="conn" class:ok={$connected}>● {$connected ? t("app.connected") : t("app.disconnected")}</span>
+    {/if}
     <span class="spacer"></span>
     <button class="icon-btn" title={t("app.settings")} aria-label={t("app.settings")} onclick={() => (settingsOpen = true)}><Settings size={16} /></button>
   </header>

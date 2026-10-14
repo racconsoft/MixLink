@@ -27,4 +27,10 @@ describe("ConnectionOverlay", () => {
     await fireEvent.click(screen.getByText("Start service"));
     await vi.waitFor(() => expect(get(toasts).at(-1)?.text).toContain("systemctl exited with 5"));
   });
+
+  it("stays hidden while the connection state is still unknown", () => {
+    connected.set(null);
+    render(ConnectionOverlay);
+    expect(screen.queryByText("MixLink service is not running")).toBeNull();
+  });
 });

@@ -5,7 +5,8 @@ import type { Command, ErrorBody, Meters, State } from "./types";
 
 export const daemonState = writable<State | null>(null);
 export const meters = writable<Meters | null>(null);
-export const connected = writable(false);
+/** `null` until the first snapshot or connection event says whether the daemon is reachable. */
+export const connected = writable<boolean | null>(null);
 export interface Toast { id: number; text: string }
 export const toasts = writable<Toast[]>([]);
 export const TOAST_MS = 5000;
@@ -45,10 +46,17 @@ export async function send(cmd: Command): Promise<boolean> {
 /** Wires the backend into the stores; returns a cleanup function. */
 export function initBackend(b: Backend = defaultBackend): () => void {
   active = b;
+  // Events can arrive before the snapshot resolves; the snapshot must not overwrite them.
+  let gotState = false;
+  let gotConnection = false;
   const offs = [
-    b.onState((s) => daemonState.set(s)),
+    b.onState((s) => {
+      gotState = true;
+      daemonState.set(s);
+    }),
     b.onMeters((m) => meters.set(m)),
     b.onConnection((c) => {
+      gotConnection = true;
       connected.set(c);
       if (!c) meters.set(null);
     }),
@@ -61,8 +69,8 @@ export function initBackend(b: Backend = defaultBackend): () => void {
     }
   });
   void b.snapshot().then((snap) => {
-    if (snap.state) daemonState.set(snap.state);
-    connected.set(snap.connected);
+    if (snap.state && !gotState) daemonState.set(snap.state);
+    if (!gotConnection) connected.set(snap.connected);
   });
   b.log("info", "ui: started");
   return () => {
