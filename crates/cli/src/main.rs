@@ -46,6 +46,7 @@ enum Cmd {
     Listen { mix: MixKindArg },
     /// List playback devices, or play the monitor mix on <device>
     Output {
+        #[arg(conflicts_with = "stream")]
         device: Option<String>,
         /// Also route the Stream mix to <device> ("none" clears it; the virtual
         /// OBS source always stays)
@@ -189,20 +190,20 @@ fn print_json(value: &serde_json::Value) -> Result<(), String> {
 
 fn plan(cmd: &Cmd) -> Result<Plan, String> {
     Ok(Plan::Call(match cmd {
+        // `device` and `stream` are declared mutually exclusive on the clap side
+        // (`conflicts_with`), so only three combinations ever reach here.
         Cmd::Output {
             device: None,
             stream: None,
         } => return Ok(Plan::ListOutputs),
         Cmd::Output {
-            device: Some(_),
-            stream: Some(_),
-        } => {
-            return Err("give either a device or --stream <device>, not both".into());
-        }
-        Cmd::Output {
             device: Some(device),
             stream: None,
         } => set_mix(MixKind::Monitor, None, None, None, Some(device.clone())),
+        Cmd::Output {
+            device: Some(_),
+            stream: Some(_),
+        } => unreachable!("clap's conflicts_with rejects device together with --stream"),
         Cmd::Output {
             device: None,
             stream: Some(device),

@@ -80,6 +80,7 @@ pub fn format_outputs(devices: &[Device], monitor: Option<&str>, stream: Option<
         .max()
         .unwrap_or(0);
     let mut out = String::new();
+    let _ = writeln!(out, "M = monitor mix, S = stream mix");
     for d in sinks {
         let m = if monitor == Some(d.name.as_str()) {
             'M'
@@ -307,7 +308,7 @@ mod tests {
         let text = format_outputs(&devices, Some("alsa_output.hdmi"), Some("alsa_output.hdmi"));
         assert_eq!(
             text,
-            "   Speakers    alsa_output.speakers\nMS HDMI Audio  alsa_output.hdmi\n"
+            "M = monitor mix, S = stream mix\n   Speakers    alsa_output.speakers\nMS HDMI Audio  alsa_output.hdmi\n"
         );
         assert!(format_outputs(&[], None, None).contains("No playback devices"));
     }
@@ -322,7 +323,7 @@ mod tests {
         );
         assert_eq!(
             text,
-            "M  Speakers    alsa_output.speakers\n S HDMI Audio  alsa_output.hdmi\n"
+            "M = monitor mix, S = stream mix\nM  Speakers    alsa_output.speakers\n S HDMI Audio  alsa_output.hdmi\n"
         );
     }
 
