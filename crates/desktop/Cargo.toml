@@ -1,0 +1,15 @@
+[package]
+name = "mixlink-desktop"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+mixlink-core = { path = "../core", features = ["tokio"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt", "sync", "time", "macros"] }
+tracing = "0.1"
+
+[dev-dependencies]
+mixlinkd = { path = "../daemon" }
+tempfile = "3"
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "sync", "time", "macros", "net", "io-util"] }

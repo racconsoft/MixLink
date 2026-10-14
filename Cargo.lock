@@ -417,6 +417,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "mixlink-desktop"
+version = "0.1.0"
+dependencies = [
+ "mixlink-core",
+ "mixlinkd",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "mixlinkd"
 version = "0.1.0"
 dependencies = [
