@@ -10,7 +10,7 @@ cd "$ROOT"
 
 for tool in cargo pnpm; do
   if ! command -v "$tool" >/dev/null 2>&1; then
-    echo "error: '$tool' was not found. See README.md, section 'Voraussetzungen' (Rust toolchain, Node.js + pnpm)." >&2
+    echo "error: '$tool' was not found. See README.md, section 'Requirements' (Rust toolchain, Node.js + pnpm)." >&2
     exit 1
   fi
 done
