@@ -412,6 +412,7 @@ dependencies = [
  "strsim",
  "tempfile",
  "thiserror",
+ "tokio",
  "toml",
 ]
 
