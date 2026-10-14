@@ -9,7 +9,7 @@ pub fn to_gain(percent: u8) -> f32 {
 
 /// Applies a relative change, clamped to 0–100.
 pub fn apply_delta(current: u8, delta: i32) -> u8 {
-    (i32::from(current) + delta).clamp(0, 100) as u8
+    i32::from(current).saturating_add(delta).clamp(0, 100) as u8
 }
 
 /// New position of the partner fader when a linked fader moves from `old` to `new`.
@@ -35,6 +35,12 @@ mod tests {
         assert_eq!(apply_delta(50, 10), 60);
         assert_eq!(apply_delta(95, 10), 100);
         assert_eq!(apply_delta(5, -10), 0);
+    }
+
+    #[test]
+    fn delta_saturates_on_extreme_input() {
+        assert_eq!(apply_delta(50, i32::MAX), 100);
+        assert_eq!(apply_delta(50, i32::MIN), 0);
     }
 
     #[test]

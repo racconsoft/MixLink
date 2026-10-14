@@ -7,7 +7,7 @@ pub fn normalize_app(app: &str) -> String {
 
 pub fn channel_for_app<'a>(channels: &'a [Channel], app: &str) -> Option<&'a Channel> {
     let app = normalize_app(app);
-    channels.iter().find(|c| c.apps.iter().any(|a| *a == app))
+    channels.iter().find(|c| c.apps.contains(&app))
 }
 
 /// Assigns `app` to `channel_id`. An app belongs to at most one channel.
