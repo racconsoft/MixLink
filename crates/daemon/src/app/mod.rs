@@ -5,7 +5,7 @@ use wavelink_core::model::{
     channel_id_from_node_name, channel_node_name, ActiveApp, Channel, ChannelId, ChannelKind, Config, Device,
     DeviceKind, State, MAX_CHANNELS, NODE_PREFIX,
 };
-use wavelink_core::protocol::{Command, ErrorBody, ErrorCode, Event};
+use wavelink_core::protocol::{Command, ErrorBody, Event};
 use wavelink_core::resolve::{resolve, Candidate};
 use wavelink_core::rules;
 
@@ -13,6 +13,7 @@ use crate::backend::{AudioBackend, BackendCommand, BackendEvent, ChannelSource, 
 use crate::mixer::dsp::Peaks;
 use crate::targets::compute_targets;
 
+mod channels;
 mod mixing;
 
 pub type CmdResult = Result<Value, ErrorBody>;
@@ -87,7 +88,13 @@ impl<B: AudioBackend> App<B> {
             Command::SetListen { mix } => self.set_listen(mix),
             Command::SetFallbackChannel { channel } => self.set_fallback_channel(&channel),
             Command::SetSettings { auto_xlr_profile } => self.set_settings(auto_xlr_profile),
-            other => Err(ErrorBody::new(ErrorCode::Internal, format!("unsupported command: {other:?}"))),
+            Command::AssignApp { app, channel } => self.assign_app(&app, &channel),
+            Command::UnassignApp { app } => self.unassign_app(&app),
+            Command::CreateChannel { name, icon, color } => self.create_channel(&name, icon, color),
+            Command::RenameChannel { channel, name } => self.rename_channel(&channel, &name),
+            Command::UpdateChannel { channel, icon, color } => self.update_channel(&channel, icon, color),
+            Command::DeleteChannel { channel } => self.delete_channel(&channel),
+            Command::ReorderChannels { order } => self.reorder_channels(&order),
         }
     }
 
@@ -176,10 +183,10 @@ impl<B: AudioBackend> App<B> {
         if !is_new {
             return;
         }
-        if let Some(target) = rules::channel_for_app(&self.state.config.channels, &info.app) {
-            if channel.as_deref() != Some(target.id.as_str()) {
-                self.backend.send(BackendCommand::MoveStream { node_id: info.node_id, target: target.node_name() });
-            }
+        if let Some(target) = rules::channel_for_app(&self.state.config.channels, &info.app)
+            && channel.as_deref() != Some(target.id.as_str())
+        {
+            self.backend.send(BackendCommand::MoveStream { node_id: info.node_id, target: target.node_name() });
         }
     }
 
@@ -235,10 +242,10 @@ impl<B: AudioBackend> App<B> {
         self.backend.send(BackendCommand::SetMonitorOutput(self.state.config.mixes.monitor.output_device.clone()));
         self.backend.send(BackendCommand::SetDefaultSink(Some(self.fallback_node())));
         for app in &self.state.apps {
-            if let Some(target) = rules::channel_for_app(&self.state.config.channels, &app.app) {
-                if app.channel.as_deref() != Some(target.id.as_str()) {
-                    self.backend.send(BackendCommand::MoveStream { node_id: app.node_id, target: target.node_name() });
-                }
+            if let Some(target) = rules::channel_for_app(&self.state.config.channels, &app.app)
+                && app.channel.as_deref() != Some(target.id.as_str())
+            {
+                self.backend.send(BackendCommand::MoveStream { node_id: app.node_id, target: target.node_name() });
             }
         }
     }
