@@ -53,7 +53,13 @@ async fn handle_client(stream: UnixStream, actor: mpsc::Sender<ActorMsg>, broadc
                     continue;
                 }
                 let response = match serde_json::from_str::<Request>(&line) {
-                    Err(e) => Response::err(0, ErrorBody::invalid(format!("invalid request: {e}"))),
+                    Err(e) => {
+                        let id = serde_json::from_str::<serde_json::Value>(&line)
+                            .ok()
+                            .and_then(|v| v.get("id").and_then(|id| id.as_u64()))
+                            .unwrap_or(0);
+                        Response::err(id, ErrorBody::invalid(format!("invalid request: {e}")))
+                    }
                     Ok(request) => {
                         if let Command::Subscribe { state, meters } = request.command {
                             want_state = state;

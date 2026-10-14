@@ -94,6 +94,16 @@ async fn invalid_json_gets_an_error_response() {
 }
 
 #[tokio::test]
+async fn invalid_request_echoes_recovered_id() {
+    let (_dir, path) = start().await;
+    let (mut lines, mut write) = connect(&path).await;
+    let resp = request(&mut lines, &mut write, r#"{"id":42,"cmd":"set_vloume","args":{}}"#).await;
+    assert!(!resp.ok);
+    assert_eq!(resp.id, 42);
+    assert_eq!(resp.error.unwrap().code, wavelink_core::protocol::ErrorCode::InvalidArgument);
+}
+
+#[tokio::test]
 async fn unknown_channel_error_lists_options() {
     let (_dir, path) = start().await;
     let (mut lines, mut write) = connect(&path).await;
