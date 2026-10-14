@@ -110,6 +110,7 @@ export function applyMockCommand(state: State, cmd: Command): unknown {
     case "delete_channel": {
       if (cmd.args.channel === state.config.fallback_channel) throw { code: "not_allowed", message: "cannot delete the fallback channel" };
       state.config.channels = state.config.channels.filter((x) => x.id !== cmd.args.channel);
+      for (const a of state.apps) if (a.channel === cmd.args.channel) a.channel = state.config.fallback_channel;
       return { deleted: cmd.args.channel };
     }
     case "set_mix": {
