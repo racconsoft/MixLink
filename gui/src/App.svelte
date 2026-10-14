@@ -68,9 +68,10 @@
     background: color-mix(in srgb, var(--danger) 18%, transparent); }
   .conn.ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 18%, transparent); }
   .spacer { flex: 1; }
-  main { flex: 1; overflow: auto; padding: 0 0 12px; }
+  main { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; padding: 0 0 12px; }
   .section { margin: 12px 12px 6px; font-size: 10px; font-weight: 600; letter-spacing: 0.08em;
-    text-transform: uppercase; color: var(--text-dim); }
-  .strips { display: flex; gap: 8px; padding: 0 12px 6px; overflow-x: auto; align-items: stretch; }
-  .outputs { display: flex; flex-direction: column; gap: 6px; padding: 0 12px; }
+    text-transform: uppercase; color: var(--text-dim); flex: none; }
+  .strips { display: flex; gap: 8px; padding: 0 12px 6px; overflow: auto; align-items: stretch;
+    flex: 1; min-height: 0; }
+  .outputs { display: flex; flex-direction: column; gap: 6px; padding: 0 12px; flex: none; }
 </style>

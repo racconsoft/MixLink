@@ -7,6 +7,17 @@ test("main window", async ({ page }) => {
   await page.screenshot({ path: "screenshots/main.png" });
 });
 
+test.describe("small viewport", () => {
+  test.use({ viewport: { width: 900, height: 560 } });
+
+  test("main window at small window size", async ({ page }) => {
+    await page.goto("/");
+    await expect(page.getByTestId("strip-music")).toBeVisible();
+    await page.waitForTimeout(400);
+    await page.screenshot({ path: "screenshots/main-small.png" });
+  });
+});
+
 test("disconnected", async ({ page }) => {
   await page.goto("/?disconnected=1");
   await expect(page.getByText("MixLink service is not running")).toBeVisible();

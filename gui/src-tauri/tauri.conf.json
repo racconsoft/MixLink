@@ -16,9 +16,9 @@
         "label": "main",
         "title": "MixLink",
         "width": 900,
-        "height": 640,
+        "height": 560,
         "minWidth": 720,
-        "minHeight": 520,
+        "minHeight": 460,
         "visible": false,
         "dragDropEnabled": false
       }

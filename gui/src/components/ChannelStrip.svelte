@@ -84,6 +84,6 @@
   .ico { width: 18px; height: 18px; border-radius: 3px; display: inline-flex; align-items: center; justify-content: center; color: #fff; flex: none; }
   .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .fallback { color: var(--accent); display: inline-flex; }
-  .faders { display: flex; justify-content: space-around; height: 180px; }
+  .faders { display: flex; justify-content: space-around; flex: 1; min-height: 120px; }
   .buttons { display: flex; justify-content: space-around; }
 </style>
