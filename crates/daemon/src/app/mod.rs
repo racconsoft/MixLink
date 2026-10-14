@@ -316,6 +316,9 @@ impl<B: AudioBackend> App<B> {
         self.backend.send(BackendCommand::SetMonitorOutput(
             self.state.config.mixes.monitor.output_device.clone(),
         ));
+        self.backend.send(BackendCommand::SetStreamOutput(
+            self.state.config.mixes.stream.output_device.clone(),
+        ));
         self.backend
             .send(BackendCommand::SetDefaultSink(Some(self.fallback_node())));
         for app in &self.state.apps {
@@ -459,8 +462,9 @@ mod tests {
             cmds[4],
             BackendCommand::SetMonitorOutput(Some("alsa_output.headphones".into()))
         );
+        assert_eq!(cmds[5], BackendCommand::SetStreamOutput(None));
         assert_eq!(
-            cmds[5],
+            cmds[6],
             BackendCommand::SetDefaultSink(Some("mixlink.channel.system".into()))
         );
         assert_eq!(

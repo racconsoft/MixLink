@@ -132,12 +132,16 @@ impl<B: AudioBackend> App<B> {
             (None, None) => None,
             (v, d) => Some(level_change(v, d)?),
         };
-        let device = match output_device {
+        // `None` = no request; `Some(None)` = clear the device; `Some(Some(name))` = set it.
+        let device: Option<Option<String>> = match output_device.as_deref().map(str::trim) {
             None => None,
-            Some(_) if mix == MixKind::Stream => {
-                return Err(ErrorBody::invalid("the stream mix has no output device"));
+            Some("") if mix == MixKind::Monitor => {
+                return Err(ErrorBody::invalid(
+                    "the monitor mix always needs an output device",
+                ));
             }
-            Some(query) => Some(self.resolve_sink(&query)?),
+            Some("") => Some(None),
+            Some(query) => Some(Some(self.resolve_sink(query)?)),
         };
         if change.is_none() && muted.is_none() && device.is_none() {
             return Err(ErrorBody::invalid(
@@ -152,12 +156,15 @@ impl<B: AudioBackend> App<B> {
             m.muted = muted;
         }
         if let Some(device) = &device {
-            m.output_device = Some(device.clone());
+            m.output_device = device.clone();
         }
         let result = to_value(&*m);
         if let Some(device) = device {
-            self.backend
-                .send(BackendCommand::SetMonitorOutput(Some(device)));
+            let cmd = match mix {
+                MixKind::Monitor => BackendCommand::SetMonitorOutput(device),
+                MixKind::Stream => BackendCommand::SetStreamOutput(device),
+            };
+            self.backend.send(cmd);
         }
         self.push_targets();
         self.changed();
@@ -351,18 +358,8 @@ mod tests {
     }
 
     #[test]
-    fn stream_mix_has_no_output_device_and_empty_set_mix_is_invalid() {
+    fn nothing_to_change_is_invalid() {
         let (mut app, _fake) = ready_app();
-        let err = app
-            .handle(Command::SetMix {
-                mix: MixKind::Stream,
-                volume: None,
-                delta: None,
-                muted: None,
-                output_device: Some("x".into()),
-            })
-            .unwrap_err();
-        assert_eq!(err.code, ErrorCode::InvalidArgument);
         let err = app
             .handle(Command::SetMix {
                 mix: MixKind::Stream,
@@ -373,6 +370,100 @@ mod tests {
             })
             .unwrap_err();
         assert_eq!(err.code, ErrorCode::InvalidArgument);
+    }
+
+    #[test]
+    fn set_mix_stream_with_device_sends_set_stream_output_and_stores_it() {
+        let (mut app, fake) = ready_app();
+        app.on_backend_event(BackendEvent::DeviceAdded(device(
+            "alsa_output.hdmi",
+            "HDMI Speakers",
+            DeviceKind::Sink,
+        )));
+        let result = app
+            .handle(Command::SetMix {
+                mix: MixKind::Stream,
+                volume: None,
+                delta: None,
+                muted: None,
+                output_device: Some("hdmi".into()),
+            })
+            .unwrap();
+        assert_eq!(result["output_device"], "alsa_output.hdmi");
+        assert_eq!(
+            app.state().config.mixes.stream.output_device.as_deref(),
+            Some("alsa_output.hdmi")
+        );
+        assert!(fake.take().contains(&BackendCommand::SetStreamOutput(Some(
+            "alsa_output.hdmi".into()
+        ))));
+    }
+
+    #[test]
+    fn set_mix_stream_empty_string_clears_the_device() {
+        let (mut app, fake) = ready_app();
+        app.on_backend_event(BackendEvent::DeviceAdded(device(
+            "alsa_output.hdmi",
+            "HDMI Speakers",
+            DeviceKind::Sink,
+        )));
+        app.handle(Command::SetMix {
+            mix: MixKind::Stream,
+            volume: None,
+            delta: None,
+            muted: None,
+            output_device: Some("hdmi".into()),
+        })
+        .unwrap();
+        fake.take();
+        let result = app
+            .handle(Command::SetMix {
+                mix: MixKind::Stream,
+                volume: None,
+                delta: None,
+                muted: None,
+                output_device: Some("".into()),
+            })
+            .unwrap();
+        assert!(result.get("output_device").is_none());
+        assert_eq!(app.state().config.mixes.stream.output_device, None);
+        assert!(fake.take().contains(&BackendCommand::SetStreamOutput(None)));
+    }
+
+    #[test]
+    fn set_mix_monitor_empty_string_is_invalid() {
+        let (mut app, _fake) = ready_app();
+        let err = app
+            .handle(Command::SetMix {
+                mix: MixKind::Monitor,
+                volume: None,
+                delta: None,
+                muted: None,
+                output_device: Some("   ".into()),
+            })
+            .unwrap_err();
+        assert_eq!(err.code, ErrorCode::InvalidArgument);
+    }
+
+    #[test]
+    fn set_mix_unknown_device_lists_options() {
+        let (mut app, _fake) = ready_app();
+        app.on_backend_event(BackendEvent::DeviceAdded(device(
+            "alsa_output.hdmi",
+            "HDMI Speakers",
+            DeviceKind::Sink,
+        )));
+        let err = app
+            .handle(Command::SetMix {
+                mix: MixKind::Stream,
+                volume: None,
+                delta: None,
+                muted: None,
+                output_device: Some("nonexistent".into()),
+            })
+            .unwrap_err();
+        assert_eq!(err.code, ErrorCode::NotFound);
+        assert_eq!(err.options, vec!["HDMI Speakers"]);
     }
 
     #[test]

@@ -28,6 +28,9 @@ pub enum BackendCommand {
     SetTargets(Targets),
     /// `node.name` of the playback device for the monitor mix.
     SetMonitorOutput(Option<String>),
+    /// `node.name` of the optional hardware playback device for the stream mix.
+    /// `None` means the stream mix only feeds the virtual OBS source.
+    SetStreamOutput(Option<String>),
     /// `node.name` to configure as default sink; `None` clears the setting.
     SetDefaultSink(Option<String>),
     /// Move a stream to the node named `target` (deferred until it exists).

@@ -60,6 +60,7 @@ struct Session {
     graph: Graph,
     channels: HashMap<ChannelId, ChannelEntry>,
     monitor_output: Option<String>,
+    stream_output: Option<String>,
     links: HashMap<(u32, u32), pw::link::Link>,
     /// Global id of the bound `default` metadata.
     metadata_id: Option<u32>,
@@ -102,6 +103,7 @@ pub fn run_session(
         graph: Graph::default(),
         channels: HashMap::new(),
         monitor_output: None,
+        stream_output: None,
         links: HashMap::new(),
         metadata_id: None,
         metadata: None,
@@ -532,6 +534,10 @@ impl Session {
                 self.monitor_output = output;
                 self.reconcile();
             }
+            BackendCommand::SetStreamOutput(output) => {
+                self.stream_output = output;
+                self.reconcile();
+            }
             BackendCommand::SetDefaultSink(name) => {
                 self.desired_default_sink = Some(name);
                 self.apply_default_sink();
@@ -690,6 +696,7 @@ impl Session {
                 mixer: MIXER_NODE,
                 stream_mix: STREAM_MIX_NODE,
                 monitor_output: self.monitor_output.as_deref(),
+                stream_output: self.stream_output.as_deref(),
                 channels: channel_nodes
                     .iter()
                     .map(|(slot, node, kind)| ChannelLink {

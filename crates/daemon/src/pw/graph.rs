@@ -136,6 +136,9 @@ pub struct LinkPlan<'a> {
     pub mixer: &'a str,
     pub stream_mix: &'a str,
     pub monitor_output: Option<&'a str>,
+    /// Optional additional hardware playback device for the stream mix. The
+    /// virtual `stream_mix` link is independent of this and always applies.
+    pub stream_output: Option<&'a str>,
     pub channels: Vec<ChannelLink<'a>>,
 }
 
@@ -233,6 +236,14 @@ impl Graph {
                 .filter_map(|n| self.port_named(mixer.id, n))
                 .collect();
             let ins = self.ports_where(stream_mix.id, Direction::In, |_| true);
+            out.extend(pair_ports(&outs, &ins));
+        }
+        if let Some(device) = plan.stream_output.and_then(|name| self.node_by_name(name)) {
+            let outs: Vec<&PortInfo> = STREAM_OUT
+                .iter()
+                .filter_map(|n| self.port_named(mixer.id, n))
+                .collect();
+            let ins = self.ports_where(device.id, Direction::In, |p| !p.monitor);
             out.extend(pair_ports(&outs, &ins));
         }
         out
@@ -356,10 +367,18 @@ mod tests {
     }
 
     fn plan(monitor_output: Option<&str>) -> LinkPlan<'_> {
+        plan_with_stream(monitor_output, None)
+    }
+
+    fn plan_with_stream<'a>(
+        monitor_output: Option<&'a str>,
+        stream_output: Option<&'a str>,
+    ) -> LinkPlan<'a> {
         LinkPlan {
             mixer: MIXER_NODE,
             stream_mix: STREAM_MIX_NODE,
             monitor_output,
+            stream_output,
             channels: vec![
                 ChannelLink {
                     slot: 0,
@@ -417,6 +436,76 @@ mod tests {
         assert!(
             g.desired_links(&plan(Some("alsa_output.headphones")))
                 .contains(&(110, 410))
+        );
+    }
+
+    #[test]
+    fn stream_output_device_is_linked_alongside_the_virtual_stream_mix() {
+        let mut links =
+            graph().desired_links(&plan_with_stream(None, Some("alsa_output.headphones")));
+        links.sort();
+        assert_eq!(
+            links,
+            vec![
+                (112, 300),
+                (112, 400), // stream_FL → virtual stream mix AND the hardware device
+                (113, 301),
+                (113, 401), // stream_FR → virtual stream mix AND the hardware device
+                (202, 100),
+                (203, 101),
+                (500, 102),
+                (500, 103),
+            ]
+        );
+    }
+
+    #[test]
+    fn absent_stream_device_only_drops_those_links() {
+        let links = graph().desired_links(&plan_with_stream(None, Some("alsa_output.unplugged")));
+        assert!(!links.iter().any(|(o, i)| *o == 112 && *i == 400));
+        assert!(!links.iter().any(|(o, i)| *o == 113 && *i == 401));
+        assert!(
+            links.contains(&(112, 300)),
+            "the virtual stream mix link stays"
+        );
+        assert!(links.contains(&(113, 301)));
+    }
+
+    #[test]
+    fn stream_device_appearing_later_gets_linked() {
+        let mut g = graph();
+        g.remove(40);
+        assert!(
+            !g.desired_links(&plan_with_stream(None, Some("alsa_output.headphones")))
+                .contains(&(112, 400))
+        );
+        g.add_node(node(41, "alsa_output.headphones", "Audio/Sink"));
+        g.add_port(port(410, 41, "playback_FL", Direction::In, false));
+        g.add_port(port(411, 41, "playback_FR", Direction::In, false));
+        assert!(
+            g.desired_links(&plan_with_stream(None, Some("alsa_output.headphones")))
+                .contains(&(112, 410))
+        );
+    }
+
+    #[test]
+    fn same_device_for_monitor_and_stream_links_both() {
+        let mut links = graph().desired_links(&plan_with_stream(
+            Some("alsa_output.headphones"),
+            Some("alsa_output.headphones"),
+        ));
+        links.sort();
+        assert!(links.contains(&(110, 400)), "monitor_FL → device");
+        assert!(links.contains(&(111, 401)), "monitor_FR → device");
+        assert!(links.contains(&(112, 400)), "stream_FL → device");
+        assert!(links.contains(&(113, 401)), "stream_FR → device");
+        assert!(
+            links.contains(&(112, 300)),
+            "stream_FL → virtual stream mix"
+        );
+        assert!(
+            links.contains(&(113, 301)),
+            "stream_FR → virtual stream mix"
         );
     }
 
