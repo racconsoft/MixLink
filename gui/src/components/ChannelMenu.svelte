@@ -2,7 +2,7 @@
   import { ChevronDown } from "@lucide/svelte";
   import type { Channel } from "../lib/types";
   import { send } from "../lib/stores";
-  import { openPopover } from "../lib/popover";
+  import { anchored, openPopover } from "../lib/popover";
   import { t } from "../lib/i18n";
   import ConfirmDialog from "./ConfirmDialog.svelte";
 
@@ -10,6 +10,7 @@
   const id = $derived(`menu:${channel.id}`);
   const open = $derived($openPopover === id);
   let confirming = $state(false);
+  let trigger = $state<HTMLElement>();
 
   function toggle(e: MouseEvent) {
     e.stopPropagation();
@@ -31,9 +32,9 @@
 
 <svelte:window onclick={() => { if (open) openPopover.set(null); }} />
 <div class="menu">
-  <button class="icon-btn" title={t("channel.menu")} aria-label={t("channel.menu")} onclick={toggle}><ChevronDown size={14} /></button>
+  <button class="icon-btn" title={t("channel.menu")} aria-label={t("channel.menu")} bind:this={trigger} onclick={toggle}><ChevronDown size={14} /></button>
   {#if open}
-    <div class="popover" role="menu">
+    <div class="popover" role="menu" use:anchored={{ trigger, align: "right" }}>
       <button class="item" onclick={() => run(() => onedit(channel))}>{t("channel.rename")}</button>
       <button class="item" onclick={() => run(() => onedit(channel))}>{t("channel.iconColor")}</button>
       <button class="item" disabled={fallback || channel.kind === "input"}
@@ -54,6 +55,5 @@
 
 <style>
   .menu { position: relative; }
-  .popover { right: 0; top: 100%; }
   .danger { color: var(--danger); }
 </style>

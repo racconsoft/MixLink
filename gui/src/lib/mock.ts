@@ -129,9 +129,17 @@ export function applyMockCommand(state: State, cmd: Command): unknown {
   }
 }
 
-export function createMock(opts: { connected?: boolean; warnings?: string[] } = {}): Backend {
+/** Extra running apps for `?manyapps=1` (they play in the fallback channel). */
+const MANY_APPS = ["OBS Studio", "VLC", "Steam", "Telegram", "Thunderbird", "mpv", "Chromium", "Signal"];
+
+export function createMock(opts: { connected?: boolean; warnings?: string[]; manyApps?: boolean } = {}): Backend {
   const state = initialMockState();
   state.warnings = opts.warnings ?? [];
+  if (opts.manyApps) {
+    MANY_APPS.forEach((name, i) => state.apps.push({
+      node_id: 10 + i, app: name.toLowerCase().replace(/\s+/g, "-"), name, icon: null, channel: state.config.fallback_channel,
+    }));
+  }
   const connected = opts.connected ?? true;
   const stateCbs = new Set<(s: State) => void>();
   const meterCbs = new Set<(m: Meters) => void>();

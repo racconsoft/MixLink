@@ -28,3 +28,10 @@ test("channel dialog and app picker", async ({ page }) => {
   await page.getByTestId("strip-browser").getByTitle("Assign apps").click();
   await page.screenshot({ path: "screenshots/app-picker.png" });
 });
+
+test("app picker with many apps is not clipped", async ({ page }) => {
+  await page.goto("/?manyapps=1");
+  await page.getByTestId("strip-browser").getByTitle("Assign apps").click();
+  await expect(page.getByRole("dialog", { name: "Assign apps" })).toBeVisible();
+  await page.screenshot({ path: "screenshots/app-picker-many.png" });
+});

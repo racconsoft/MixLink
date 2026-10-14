@@ -51,6 +51,7 @@ function mockFromUrl(): Backend {
   return createMock({
     connected: !params.has("disconnected"),
     warnings: params.has("warning") ? ["The config was invalid; defaults were loaded"] : [],
+    manyApps: params.has("manyapps"),
   });
 }
 

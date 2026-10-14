@@ -12,9 +12,17 @@
   const picking = $derived($openPopover === id);
   const entries = $derived(channelApps(channel, allApps));
 
-  function toggle(e: MouseEvent) {
+  let trigger = $state<HTMLElement>();
+
+  function toggle(e: Event) {
     e.stopPropagation();
     openPopover.set(picking ? null : id);
+  }
+  function keydown(e: KeyboardEvent) {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      toggle(e);
+    }
   }
 </script>
 
@@ -22,10 +30,12 @@
   <div class="apps input" title={t("channel.inputHint")}><Mic size={16} /></div>
 {:else}
   <div class="wrap">
-    <button class="apps" title={t("apps.assign")} onclick={toggle}>
+    <!-- Not a <button>: draggable icons inside a button do not start drags in WebKitGTK. -->
+    <div class="apps" role="button" tabindex="0" title={t("apps.assign")} aria-label={t("apps.assign")}
+      aria-expanded={picking} bind:this={trigger} onclick={toggle} onkeydown={keydown}>
       {#each entries as entry (entry.app)}<AppIcon {entry} />{/each}
-    </button>
-    {#if picking}<AppPicker {channel} {allApps} onclose={() => openPopover.set(null)} />{/if}
+    </div>
+    {#if picking}<AppPicker {channel} {allApps} {trigger} onclose={() => openPopover.set(null)} />{/if}
   </div>
 {/if}
 
@@ -33,7 +43,7 @@
   .wrap { position: relative; }
   .apps { width: 100%; min-height: 28px; background: var(--input); border: 1px solid transparent; border-radius: var(--radius);
     display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4px; padding: 3px; cursor: pointer; }
-  .apps:hover { border-color: var(--accent); }
+  .apps:hover, .apps:focus-visible { border-color: var(--accent); outline: none; }
   .apps.input { cursor: default; color: var(--text-dim); }
   .apps.input:hover { border-color: transparent; }
 </style>
