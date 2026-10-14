@@ -1,6 +1,6 @@
 //! Central state machine: owns the State, applies commands, drives the backend.
 use mixlink_core::model::{
-    ActiveApp, Channel, ChannelId, ChannelKind, Config, Device, DeviceKind, MAX_CHANNELS,
+    ActiveApp, Channel, ChannelId, ChannelKind, Config, Device, DeviceKind, MAX_CHANNELS, MixKind,
     NODE_PREFIX, State, channel_id_from_node_name, channel_node_name,
 };
 use mixlink_core::protocol::{Command, ErrorBody, Event};
@@ -317,7 +317,7 @@ impl<B: AudioBackend> App<B> {
             self.state.config.mixes.monitor.output_device.clone(),
         ));
         self.backend.send(BackendCommand::SetStreamOutput(
-            self.state.config.mixes.stream.output_device.clone(),
+            self.effective_stream_output(),
         ));
         self.backend
             .send(BackendCommand::SetDefaultSink(Some(self.fallback_node())));
@@ -361,6 +361,25 @@ impl<B: AudioBackend> App<B> {
                 c.name
             ))),
             _ => Ok(id),
+        }
+    }
+
+    /// The stream device actually sent to the backend. While listening to the
+    /// stream mix, the monitor output already carries it (via the listen
+    /// crossfade); if the stream device is the same as the monitor device, a
+    /// direct stream→device link would feed that device the stream mix twice
+    /// (audible doubling). In that case the direct link is suppressed; the
+    /// configured `output_device` in the config is left untouched either way.
+    fn effective_stream_output(&self) -> Option<String> {
+        let mixes = &self.state.config.mixes;
+        let stream_device = mixes.stream.output_device.clone();
+        let overlaps_monitor = self.state.config.listen == MixKind::Stream
+            && stream_device.is_some()
+            && stream_device == mixes.monitor.output_device;
+        if overlaps_monitor {
+            None
+        } else {
+            stream_device
         }
     }
 

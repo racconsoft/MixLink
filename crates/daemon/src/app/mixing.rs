@@ -159,12 +159,23 @@ impl<B: AudioBackend> App<B> {
             m.output_device = device.clone();
         }
         let result = to_value(&*m);
-        if let Some(device) = device {
-            let cmd = match mix {
-                MixKind::Monitor => BackendCommand::SetMonitorOutput(device),
-                MixKind::Stream => BackendCommand::SetStreamOutput(device),
-            };
-            self.backend.send(cmd);
+        if device.is_some() {
+            match mix {
+                MixKind::Monitor => {
+                    self.backend
+                        .send(BackendCommand::SetMonitorOutput(device.flatten()));
+                    // The monitor device just changed, which can create or remove an
+                    // overlap with the (unchanged) stream device.
+                    self.backend.send(BackendCommand::SetStreamOutput(
+                        self.effective_stream_output(),
+                    ));
+                }
+                MixKind::Stream => {
+                    self.backend.send(BackendCommand::SetStreamOutput(
+                        self.effective_stream_output(),
+                    ));
+                }
+            }
         }
         self.push_targets();
         self.changed();
@@ -173,6 +184,11 @@ impl<B: AudioBackend> App<B> {
 
     pub(super) fn set_listen(&mut self, mix: MixKind) -> CmdResult {
         self.state.config.listen = mix;
+        // Switching the listened-to mix can create or remove the monitor/stream
+        // device overlap (see `effective_stream_output`).
+        self.backend.send(BackendCommand::SetStreamOutput(
+            self.effective_stream_output(),
+        ));
         self.push_targets();
         self.changed();
         Ok(json!({ "listen": mix }))
@@ -464,6 +480,95 @@ mod tests {
             .unwrap_err();
         assert_eq!(err.code, ErrorCode::NotFound);
         assert_eq!(err.options, vec!["HDMI Speakers"]);
+    }
+
+    /// Sets monitor and stream device to the same `name` and returns the app.
+    fn app_with_shared_device(
+        name: &str,
+    ) -> (
+        super::super::App<crate::backend::fake::FakeBackend>,
+        crate::backend::fake::FakeBackend,
+    ) {
+        let (mut app, fake) = ready_app();
+        app.on_backend_event(BackendEvent::DeviceAdded(device(
+            name,
+            "Shared Device",
+            DeviceKind::Sink,
+        )));
+        app.handle(Command::SetMix {
+            mix: MixKind::Monitor,
+            volume: None,
+            delta: None,
+            muted: None,
+            output_device: Some(name.into()),
+        })
+        .unwrap();
+        app.handle(Command::SetMix {
+            mix: MixKind::Stream,
+            volume: None,
+            delta: None,
+            muted: None,
+            output_device: Some(name.into()),
+        })
+        .unwrap();
+        fake.take();
+        (app, fake)
+    }
+
+    #[test]
+    fn same_device_and_listen_stream_suppresses_the_direct_stream_link() {
+        let (mut app, fake) = app_with_shared_device("alsa_output.hdmi");
+        app.handle(Command::SetListen {
+            mix: MixKind::Stream,
+        })
+        .unwrap();
+        assert!(
+            fake.take().contains(&BackendCommand::SetStreamOutput(None)),
+            "the monitor bus already carries the stream mix via the listen crossfade"
+        );
+    }
+
+    #[test]
+    fn switching_listen_back_to_monitor_restores_the_stream_link() {
+        let (mut app, fake) = app_with_shared_device("alsa_output.hdmi");
+        app.handle(Command::SetListen {
+            mix: MixKind::Stream,
+        })
+        .unwrap();
+        fake.take();
+        app.handle(Command::SetListen {
+            mix: MixKind::Monitor,
+        })
+        .unwrap();
+        assert!(fake.take().contains(&BackendCommand::SetStreamOutput(Some(
+            "alsa_output.hdmi".into()
+        ))));
+    }
+
+    #[test]
+    fn changing_the_monitor_device_away_restores_the_stream_link() {
+        let (mut app, fake) = app_with_shared_device("alsa_output.hdmi");
+        app.handle(Command::SetListen {
+            mix: MixKind::Stream,
+        })
+        .unwrap();
+        fake.take();
+        app.on_backend_event(BackendEvent::DeviceAdded(device(
+            "alsa_output.speakers",
+            "Speakers",
+            DeviceKind::Sink,
+        )));
+        app.handle(Command::SetMix {
+            mix: MixKind::Monitor,
+            volume: None,
+            delta: None,
+            muted: None,
+            output_device: Some("speakers".into()),
+        })
+        .unwrap();
+        assert!(fake.take().contains(&BackendCommand::SetStreamOutput(Some(
+            "alsa_output.hdmi".into()
+        ))));
     }
 
     #[test]
