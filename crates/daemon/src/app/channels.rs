@@ -2,7 +2,7 @@
 use serde_json::json;
 use wavelink_core::model::{channel_node_name, Channel, ChannelId, MAX_CHANNELS};
 use wavelink_core::protocol::{ErrorBody, ErrorCode};
-use wavelink_core::resolve::{resolve, Candidate};
+use wavelink_core::resolve::{resolve, Candidate, ResolveError};
 use wavelink_core::rules;
 
 use super::{to_value, App, CmdResult};
@@ -13,7 +13,7 @@ impl<B: AudioBackend> App<B> {
         if app.trim().is_empty() {
             return Err(ErrorBody::invalid("app name must not be empty"));
         }
-        let app = self.app_identity_for(app);
+        let app = self.app_identity_for(app)?;
         let id = self.resolve_channel(channel)?;
         rules::assign_app(&mut self.state.config.channels, &app, &id);
         self.move_app_streams(&app, &channel_node_name(&id));
@@ -144,7 +144,9 @@ impl<B: AudioBackend> App<B> {
 
     /// Maps a user-supplied app name to a running app's identity when possible,
     /// otherwise to the normalized name (so apps can be assigned before they run).
-    fn app_identity_for(&self, query: &str) -> String {
+    /// An ambiguous query among running apps is reported as an error rather than
+    /// silently falling back, since that would assign the wrong app.
+    fn app_identity_for(&self, query: &str) -> Result<String, ErrorBody> {
         let mut seen = std::collections::HashSet::new();
         let candidates: Vec<Candidate> = self
             .state
@@ -153,7 +155,11 @@ impl<B: AudioBackend> App<B> {
             .filter(|a| seen.insert(a.app.as_str()))
             .map(|a| Candidate { id: &a.app, name: &a.name })
             .collect();
-        resolve(query, &candidates).map(str::to_owned).unwrap_or_else(|_| rules::normalize_app(query))
+        match resolve(query, &candidates) {
+            Ok(id) => Ok(id.to_owned()),
+            Err(ResolveError::NotFound { .. }) => Ok(rules::normalize_app(query)),
+            Err(e @ ResolveError::Ambiguous { .. }) => Err(ErrorBody::from(e)),
+        }
     }
 }
 
@@ -268,6 +274,23 @@ mod tests {
         let (mut app, _fake) = ready_app();
         app.handle(Command::AssignApp { app: "OBS".into(), channel: "music".into() }).unwrap();
         assert_eq!(app.state().config.channel("music").unwrap().apps, vec!["spotify", "obs"]);
+    }
+
+    #[test]
+    fn assign_rejects_ambiguous_running_app_names() {
+        let (mut app, fake) = ready_app();
+        let mut discord = stream(50, "discord", Some("wavelink.channel.system"));
+        discord.name = "Discord".into();
+        let mut discordance = stream(51, "discordance", Some("wavelink.channel.system"));
+        discordance.name = "Discordance".into();
+        app.on_backend_event(BackendEvent::StreamUpdated(discord));
+        app.on_backend_event(BackendEvent::StreamUpdated(discordance));
+        fake.take();
+        let err = app.handle(Command::AssignApp { app: "disc".into(), channel: "voice".into() }).unwrap_err();
+        assert_eq!(err.code, ErrorCode::Ambiguous);
+        assert_eq!(err.options, vec!["Discord", "Discordance"]);
+        assert!(fake.take().is_empty(), "no streams should be moved on an ambiguous assign");
+        assert!(app.state().config.channels.iter().all(|c| c.apps.iter().all(|a| !a.starts_with("disc"))));
     }
 
     #[test]
