@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+base64 = "0.22"
+freedesktop-icons = "0.4"
 mixlink-core = { path = "../core", features = ["tokio"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt", "sync", "time", "macros"] }
