@@ -15,6 +15,9 @@ thiserror = "2"
 tracing = "0.1"
 toml = "1"
 tokio = { version = "1", features = ["rt", "macros", "net", "io-util", "sync", "time", "signal"] }
+libspa-sys = "0.10.1"
+pipewire = "0.10.1"
+pipewire-sys = "0.10.1"
 
 [dev-dependencies]
 tempfile = "3"
