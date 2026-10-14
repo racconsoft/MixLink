@@ -32,6 +32,10 @@ wavelink mute voice both              # umschalten (on/off möglich)
 wavelink assign discord "voice chat"  # App dauerhaft einem Kanal zuordnen
 wavelink unassign discord
 wavelink listen stream                # Stream Mix auf den Kopfhörern abhören
+wavelink output                       # Wiedergabegeräte auflisten (* = Monitor-Ausgang)
+wavelink output kopfhörer             # Monitor Mix auf diesem Gerät ausgeben
+wavelink mix monitor 80               # Master des Monitor Mix (0–100, +N, -N)
+wavelink mix stream mute              # Stream Mix stumm (unmute/toggle möglich)
 wavelink --json status                # maschinenlesbar
 ```
 

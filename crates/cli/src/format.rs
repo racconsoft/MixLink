@@ -1,7 +1,7 @@
 //! Human-readable output and argument parsing for the CLI.
 use std::fmt::Write;
 
-use wavelink_core::model::{Channel, Level, MixKind, State};
+use wavelink_core::model::{Channel, Device, DeviceKind, Level, Mix, MixKind, State};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LevelArg {
@@ -22,6 +22,62 @@ pub fn parse_level(input: &str) -> Result<LevelArg, String> {
         Ok(v) if v <= 100 => Ok(LevelArg::Set(v)),
         _ => Err(bad()),
     }
+}
+
+/// Argument of `wavelink mix`: a level or a mute action.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MixLevelArg {
+    Level(LevelArg),
+    Mute,
+    Unmute,
+    Toggle,
+}
+
+pub fn parse_mix_level(input: &str) -> Result<MixLevelArg, String> {
+    match input.trim().to_lowercase().as_str() {
+        "mute" => Ok(MixLevelArg::Mute),
+        "unmute" => Ok(MixLevelArg::Unmute),
+        "toggle" => Ok(MixLevelArg::Toggle),
+        _ => parse_level(input)
+            .map(MixLevelArg::Level)
+            .map_err(|e| format!("{e}, mute, unmute or toggle")),
+    }
+}
+
+/// `Monitor mix: 80 → alsa_output.x` / `Stream mix: 60 (muted) → WaveLink Stream Mix`
+pub fn format_mix(kind: MixKind, mix: &Mix) -> String {
+    let (label, output) = match kind {
+        MixKind::Monitor => ("Monitor", mix.output_device.as_deref().unwrap_or("(none)")),
+        MixKind::Stream => ("Stream", "WaveLink Stream Mix"),
+    };
+    let muted = if mix.muted { " (muted)" } else { "" };
+    format!("{label} mix: {}{muted} → {output}", mix.volume)
+}
+
+/// Playback devices, the current monitor output marked with `*`.
+pub fn format_outputs(devices: &[Device], current: Option<&str>) -> String {
+    let sinks: Vec<&Device> = devices
+        .iter()
+        .filter(|d| d.kind == DeviceKind::Sink)
+        .collect();
+    if sinks.is_empty() {
+        return "No playback devices found.\n".into();
+    }
+    let width = sinks
+        .iter()
+        .map(|d| d.description.chars().count())
+        .max()
+        .unwrap_or(0);
+    let mut out = String::new();
+    for d in sinks {
+        let mark = if current == Some(d.name.as_str()) {
+            '*'
+        } else {
+            ' '
+        };
+        let _ = writeln!(out, "{mark} {:<width$}  {}", d.description, d.name);
+    }
+    out
 }
 
 fn level(l: &Level) -> String {
@@ -157,6 +213,61 @@ mod tests {
         assert!(text.contains("alsa_output.headphones"));
         assert!(text.contains("Spotify → Music"));
         assert!(text.contains("Listening to: monitor"));
+    }
+
+    #[test]
+    fn parses_mix_levels() {
+        assert_eq!(
+            parse_mix_level("80"),
+            Ok(MixLevelArg::Level(LevelArg::Set(80)))
+        );
+        assert_eq!(
+            parse_mix_level("-5"),
+            Ok(MixLevelArg::Level(LevelArg::Delta(-5)))
+        );
+        assert_eq!(parse_mix_level("Mute"), Ok(MixLevelArg::Mute));
+        assert_eq!(parse_mix_level("unmute"), Ok(MixLevelArg::Unmute));
+        assert_eq!(parse_mix_level("toggle"), Ok(MixLevelArg::Toggle));
+        let err = parse_mix_level("loud").unwrap_err();
+        assert!(err.contains("toggle"), "{err}");
+    }
+
+    #[test]
+    fn mix_summary() {
+        let s = state();
+        assert_eq!(
+            format_mix(MixKind::Monitor, &s.config.mixes.monitor),
+            "Monitor mix: 100 → alsa_output.headphones"
+        );
+        let stream = Mix {
+            volume: 60,
+            muted: true,
+            output_device: None,
+        };
+        assert_eq!(
+            format_mix(MixKind::Stream, &stream),
+            "Stream mix: 60 (muted) → WaveLink Stream Mix"
+        );
+    }
+
+    #[test]
+    fn outputs_list_sinks_and_mark_the_current_one() {
+        let device = |name: &str, description: &str, kind| Device {
+            name: name.into(),
+            description: description.into(),
+            kind,
+        };
+        let devices = vec![
+            device("alsa_output.speakers", "Speakers", DeviceKind::Sink),
+            device("alsa_input.mic", "Mic", DeviceKind::Source),
+            device("alsa_output.hdmi", "HDMI Audio", DeviceKind::Sink),
+        ];
+        let text = format_outputs(&devices, Some("alsa_output.hdmi"));
+        assert_eq!(
+            text,
+            "  Speakers    alsa_output.speakers\n* HDMI Audio  alsa_output.hdmi\n"
+        );
+        assert!(format_outputs(&[], None).contains("No playback devices"));
     }
 
     #[test]
