@@ -1,17 +1,17 @@
 //! StatusNotifierItem tray icon via ksni (no libappindicator needed).
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, LazyLock};
 
 use ksni::TrayMethods;
 use tauri::AppHandle;
 
-use crate::window::show_main;
+use crate::window::{TrayState, TrayStatus, show_main};
 
 struct MixLinkTray {
     app: AppHandle,
 }
 
-fn icon() -> ksni::Icon {
+/// The tray pixmap, decoded and rotated RGBA → ARGB once and reused for every `icon_pixmap` call.
+static ICON: LazyLock<ksni::Icon> = LazyLock::new(|| {
     let image = tauri::image::Image::from_bytes(include_bytes!("../icons/tray-64.png"))
         .expect("tray icon is a PNG");
     let mut data = image.rgba().to_vec();
@@ -23,7 +23,7 @@ fn icon() -> ksni::Icon {
         height: image.height() as i32,
         data,
     }
-}
+});
 
 impl ksni::Tray for MixLinkTray {
     fn id(&self) -> String {
@@ -33,7 +33,7 @@ impl ksni::Tray for MixLinkTray {
         "MixLink".into()
     }
     fn icon_pixmap(&self) -> Vec<ksni::Icon> {
-        vec![icon()]
+        vec![ICON.clone()]
     }
     fn activate(&mut self, _x: i32, _y: i32) {
         show_main(&self.app);
@@ -57,14 +57,20 @@ impl ksni::Tray for MixLinkTray {
     }
 }
 
-/// Registers the tray icon; keeps it alive for the process lifetime.
-pub async fn spawn(app: AppHandle, available: Arc<AtomicBool>) {
-    match (MixLinkTray { app }).spawn().await {
+/// Registers the tray icon; keeps it alive for the process lifetime. Updates `status` once
+/// registration settles; on failure, also shows the main window, in case it was hidden while
+/// registration was still pending (see [`TrayStatus`]).
+pub async fn spawn(app: AppHandle, status: Arc<TrayState>) {
+    match (MixLinkTray { app: app.clone() }).spawn().await {
         Ok(handle) => {
-            available.store(true, Ordering::Relaxed);
+            status.set(TrayStatus::Available);
             tracing::info!("tray icon registered");
             std::mem::forget(handle);
         }
-        Err(e) => tracing::warn!("no tray available ({e}); closing the window will quit MixLink"),
+        Err(e) => {
+            status.set(TrayStatus::Unavailable);
+            tracing::warn!("no tray available ({e}); closing the window will quit MixLink");
+            show_main(&app);
+        }
     }
 }

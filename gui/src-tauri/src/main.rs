@@ -2,8 +2,8 @@ mod bridge;
 mod tray;
 mod window;
 
+use std::path::Path;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use mixlink_core::paths;
@@ -12,8 +12,16 @@ use mixlink_desktop::link::DaemonLink;
 use tauri::{Manager, WindowEvent};
 use tauri_plugin_window_state::StateFlags;
 use tracing_subscriber::EnvFilter;
+use window::TrayState;
 
 const RETRY: Duration = Duration::from_secs(1);
+
+/// Cargo build output always lives under a `target/` directory. Autostart should only ever point
+/// at an installed binary; wiring it up for a throwaway build-tree artifact would create a
+/// broken or stale autostart entry once that build directory is cleaned or rebuilt elsewhere.
+fn is_build_tree(exe: &Path) -> bool {
+    exe.components().any(|c| c.as_os_str() == "target")
+}
 
 fn main() {
     tracing_subscriber::fmt()
@@ -23,8 +31,8 @@ fn main() {
         .with_writer(std::io::stderr)
         .init();
     let hidden = std::env::args().any(|a| a == "--hidden");
-    let tray_available = Arc::new(AtomicBool::new(false));
-    let close_flag = tray_available.clone();
+    let tray_state = Arc::new(TrayState::new());
+    let close_state = tray_state.clone();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -51,13 +59,17 @@ fn main() {
             app.manage(Arc::new(mixlink_desktop::icons::IconCache::new(theme)));
 
             if let Ok(exec) = std::env::current_exe() {
-                match autostart::first_run_init(&autostart::config_home(), &exec) {
-                    Ok(true) => tracing::info!("first start: enabled autostart"),
-                    Ok(false) => {}
-                    Err(e) => tracing::warn!("could not set up autostart: {e}"),
+                if is_build_tree(&exec) {
+                    tracing::info!("running from a build tree; skipping first-run autostart");
+                } else {
+                    match autostart::first_run_init(&autostart::config_home(), &exec) {
+                        Ok(true) => tracing::info!("first start: enabled autostart"),
+                        Ok(false) => {}
+                        Err(e) => tracing::warn!("could not set up autostart: {e}"),
+                    }
                 }
             }
-            tauri::async_runtime::spawn(tray::spawn(app.handle().clone(), tray_available.clone()));
+            tauri::async_runtime::spawn(tray::spawn(app.handle().clone(), tray_state.clone()));
             if !hidden {
                 window::show_main(app.handle());
             }
@@ -65,8 +77,7 @@ fn main() {
         })
         .on_window_event(move |window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event
-                && window::close_action(close_flag.load(Ordering::Relaxed))
-                    == window::CloseAction::Hide
+                && window::close_action(close_state.get()) == window::CloseAction::Hide
             {
                 api.prevent_close();
                 let _ = window.hide();
@@ -83,4 +94,17 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("running the MixLink GUI");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_tree_executables_are_recognized_by_a_target_component() {
+        assert!(is_build_tree(Path::new(
+            "/home/u/dev/x/target/release/mixlink-gui"
+        )));
+        assert!(!is_build_tree(Path::new("/home/u/.local/bin/mixlink-gui")));
+    }
 }
