@@ -9,8 +9,9 @@
     label: string;
     onchange: (v: number) => void;
     orientation?: "vertical" | "horizontal";
+    muted?: boolean;
   }
-  let { value, label, onchange, orientation = "vertical" }: Props = $props();
+  let { value, label, onchange, orientation = "vertical", muted = false }: Props = $props();
 
   // svelte-ignore state_referenced_locally
   const model = new FaderModel(value);
@@ -66,6 +67,7 @@
 
 <div
   class="fader {orientation}"
+  class:muted
   role="slider"
   tabindex="0"
   aria-label={label}
@@ -98,6 +100,8 @@
   .horizontal .fill { top: 0; bottom: 0; left: 0; width: var(--level); }
   .knob { position: absolute; width: 14px; height: 14px; border-radius: 50%; background: var(--text);
     border: 2px solid var(--accent); }
+  .fader.muted .fill { background: var(--hint); }
+  .fader.muted .knob { border-color: var(--hint); }
   .vertical .knob { left: 4px; bottom: calc(var(--level) * (100% - 14px) / 100%); }
   .horizontal .knob { top: 4px; left: calc(var(--level) * (100% - 14px) / 100%); }
   .tip { position: absolute; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);

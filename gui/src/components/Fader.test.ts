@@ -69,4 +69,14 @@ describe("Fader", () => {
     await rerender({ value: 77, label: "Music stream", onchange });
     expect(slider).toHaveAttribute("aria-valuenow", "77");
   });
+
+  it("applies the muted class when muted", () => {
+    render(Fader, { value: 50, label: "Music stream", onchange: vi.fn(), muted: true });
+    expect(screen.getByRole("slider")).toHaveClass("muted");
+  });
+
+  it("does not apply the muted class by default", () => {
+    render(Fader, { value: 50, label: "Music stream", onchange: vi.fn() });
+    expect(screen.getByRole("slider")).not.toHaveClass("muted");
+  });
 });

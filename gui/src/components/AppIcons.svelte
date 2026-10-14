@@ -2,23 +2,30 @@
   import { Mic } from "@lucide/svelte";
   import type { ActiveApp, Channel } from "../lib/types";
   import { channelApps } from "../lib/apps";
+  import { openPopover } from "../lib/popover";
   import { t } from "../lib/i18n";
   import AppIcon from "./AppIcon.svelte";
   import AppPicker from "./AppPicker.svelte";
 
   let { channel, allApps }: { channel: Channel; allApps: ActiveApp[] } = $props();
-  let picking = $state(false);
+  const id = $derived(`apps:${channel.id}`);
+  const picking = $derived($openPopover === id);
   const entries = $derived(channelApps(channel, allApps));
+
+  function toggle(e: MouseEvent) {
+    e.stopPropagation();
+    openPopover.set(picking ? null : id);
+  }
 </script>
 
 {#if channel.kind === "input"}
   <div class="apps input" title={t("channel.inputHint")}><Mic size={16} /></div>
 {:else}
   <div class="wrap">
-    <button class="apps" title={t("apps.assign")} onclick={(e) => { e.stopPropagation(); picking = !picking; }}>
+    <button class="apps" title={t("apps.assign")} onclick={toggle}>
       {#each entries as entry (entry.app)}<AppIcon {entry} />{/each}
     </button>
-    {#if picking}<AppPicker {channel} {allApps} onclose={() => (picking = false)} />{/if}
+    {#if picking}<AppPicker {channel} {allApps} onclose={() => openPopover.set(null)} />{/if}
   </div>
 {/if}
 

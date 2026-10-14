@@ -1,6 +1,7 @@
-import { fireEvent, render, screen } from "@testing-library/svelte";
+import { fireEvent, render, screen, within } from "@testing-library/svelte";
 import ChannelStrip from "./ChannelStrip.svelte";
 import { initBackend } from "../lib/stores";
+import { openPopover } from "../lib/popover";
 import { createMock, initialMockState } from "../lib/mock";
 import { APP_MIME } from "../lib/apps";
 
@@ -15,6 +16,8 @@ function setup(id: string) {
 }
 
 describe("ChannelStrip", () => {
+  beforeEach(() => openPopover.set(null));
+
   it("mute and link buttons send the inverse state", async () => {
     const sent = setup("music");
     await fireEvent.click(screen.getByTitle("Mute in stream mix"));
@@ -43,14 +46,48 @@ describe("ChannelStrip", () => {
     expect(screen.getByTitle("Input channel – apps cannot be assigned")).toBeInTheDocument();
   });
 
-  it("the menu can set the fallback and delete after confirmation", async () => {
+  it("the menu can set the fallback", async () => {
     const sent = setup("music");
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     await fireEvent.click(screen.getByTitle("Channel options"));
     await fireEvent.click(screen.getByText("Set as fallback"));
     expect(sent).toHaveBeenCalledWith({ cmd: "set_fallback_channel", args: { channel: "music" } });
+  });
+
+  it("delete opens an in-app confirmation dialog and only deletes once confirmed", async () => {
+    const sent = setup("music");
     await fireEvent.click(screen.getByTitle("Channel options"));
     await fireEvent.click(screen.getByText("Delete"));
+    expect(screen.getByText('Delete channel "Music"? Its apps move to the fallback channel.')).toBeInTheDocument();
+    expect(sent).not.toHaveBeenCalledWith(expect.objectContaining({ cmd: "delete_channel" }));
+
+    await fireEvent.click(screen.getByText("Delete"));
     expect(sent).toHaveBeenCalledWith({ cmd: "delete_channel", args: { channel: "music" } });
+  });
+
+  it("cancelling the delete confirmation sends nothing", async () => {
+    const sent = setup("music");
+    await fireEvent.click(screen.getByTitle("Channel options"));
+    await fireEvent.click(screen.getByText("Delete"));
+    await fireEvent.click(screen.getByText("Cancel"));
+    expect(sent).not.toHaveBeenCalledWith(expect.objectContaining({ cmd: "delete_channel" }));
+  });
+
+  it("opening one channel's menu closes another channel's menu", async () => {
+    const mock = createMock();
+    initBackend(mock);
+    const state = initialMockState();
+    const music = state.config.channels.find((c) => c.id === "music")!;
+    const game = state.config.channels.find((c) => c.id === "game")!;
+    render(ChannelStrip, { channel: music, fallback: false, peaks: [0, 0], allApps: state.apps, onedit: vi.fn() });
+    render(ChannelStrip, { channel: game, fallback: false, peaks: [0, 0], allApps: state.apps, onedit: vi.fn() });
+
+    const musicStrip = screen.getByTestId("strip-music");
+    const gameStrip = screen.getByTestId("strip-game");
+    await fireEvent.click(within(musicStrip).getByTitle("Channel options"));
+    expect(within(musicStrip).queryByRole("menu")).toBeInTheDocument();
+
+    await fireEvent.click(within(gameStrip).getByTitle("Channel options"));
+    expect(within(gameStrip).queryByRole("menu")).toBeInTheDocument();
+    expect(within(musicStrip).queryByRole("menu")).toBeNull();
   });
 });

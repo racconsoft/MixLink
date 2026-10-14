@@ -37,6 +37,12 @@
       dropping = true;
     }
   }
+  function dragleave(e: DragEvent) {
+    const strip = e.currentTarget as HTMLElement;
+    if (!strip.contains(e.relatedTarget as Node | null)) {
+      dropping = false;
+    }
+  }
   function drop(e: DragEvent) {
     dropping = false;
     const app = e.dataTransfer?.getData(APP_MIME);
@@ -48,7 +54,7 @@
 </script>
 
 <section class="strip surface" class:dropping data-testid="strip-{channel.id}"
-  ondragover={dragover} ondragleave={() => (dropping = false)} ondrop={drop}>
+  ondragover={dragover} ondragleave={dragleave} ondrop={drop}>
   <header>
     <span class="ico" style:background={channel.color}><Icon size={13} /></span>
     <span class="name" title={channel.name}>{channel.name}</span>
@@ -58,8 +64,8 @@
   <Meter {peaks} label={t("channel.meter", { name: channel.name })} />
   <AppIcons {channel} {allApps} />
   <div class="faders">
-    <Fader value={channel.monitor.volume} label={t("channel.monitorVolume", { name: channel.name })} onchange={(v) => volume("monitor", v)} />
-    <Fader value={channel.stream.volume} label={t("channel.streamVolume", { name: channel.name })} onchange={(v) => volume("stream", v)} />
+    <Fader value={channel.monitor.volume} muted={channel.monitor.muted} label={t("channel.monitorVolume", { name: channel.name })} onchange={(v) => volume("monitor", v)} />
+    <Fader value={channel.stream.volume} muted={channel.stream.muted} label={t("channel.streamVolume", { name: channel.name })} onchange={(v) => volume("stream", v)} />
   </div>
   <div class="buttons">
     <button class="icon-btn" class:muted={channel.monitor.muted} class:active={!channel.monitor.muted}
@@ -72,7 +78,7 @@
 </section>
 
 <style>
-  .strip { width: 108px; flex: none; padding: 8px; display: flex; flex-direction: column; gap: 8px; }
+  .strip { width: 124px; flex: none; padding: 8px; display: flex; flex-direction: column; gap: 8px; }
   .strip.dropping { border-color: var(--accent); }
   header { display: flex; align-items: center; gap: 5px; }
   .ico { width: 18px; height: 18px; border-radius: 3px; display: inline-flex; align-items: center; justify-content: center; color: #fff; flex: none; }
