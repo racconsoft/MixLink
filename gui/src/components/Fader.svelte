@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
   import { FaderModel, valueFromPointer, valueFromPointerX, wheelStep } from "../lib/fader";
   import { throttle } from "../lib/throttle";
   import { t } from "../lib/i18n";
@@ -19,6 +20,7 @@
   let dragging = $state(false);
   let el: HTMLDivElement;
   const out = throttle((v: number) => onchange(v), 33);
+  onDestroy(() => out.cancel());
 
   $effect(() => {
     if (model.external(value, Date.now())) shown = model.value;
@@ -28,7 +30,7 @@
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       shown = model.set(wheelStep(shown, e.deltaY), Date.now());
-      onchange(shown);
+      out.push(shown);
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);

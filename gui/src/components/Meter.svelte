@@ -5,7 +5,7 @@
   let { peaks = [0, 0], label = "" }: Props = $props();
 </script>
 
-<div class="meter" role="meter" aria-label={label} aria-valuemin={0} aria-valuemax={1} aria-valuenow={Math.max(...peaks)}>
+<div class="meter" role="meter" aria-label={label} aria-valuemin={0} aria-valuemax={1} aria-valuenow={meterLevel(Math.max(...peaks))}>
   {#each peaks as peak, i (i)}
     <div class="bar"><div class="level" style:width="{meterLevel(peak) * 100}%"></div></div>
   {/each}

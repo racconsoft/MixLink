@@ -52,4 +52,21 @@ describe("Fader", () => {
     await fireEvent.pointerEnter(screen.getByRole("slider"));
     expect(screen.getByText("42 %")).toBeInTheDocument();
   });
+
+  it("ignores echoes for 300ms after release, then accepts external values again", async () => {
+    rect();
+    const onchange = vi.fn();
+    const { rerender } = render(Fader, { value: 0, label: "Music stream", onchange });
+    const slider = screen.getByRole("slider");
+    await fireEvent.pointerDown(slider, { clientY: 100, pointerId: 1 });
+    await fireEvent.pointerUp(slider, { clientY: 100, pointerId: 1 });
+    expect(slider).toHaveAttribute("aria-valuenow", "0");
+
+    await rerender({ value: 55, label: "Music stream", onchange });
+    expect(slider).toHaveAttribute("aria-valuenow", "0");
+
+    vi.advanceTimersByTime(300);
+    await rerender({ value: 77, label: "Music stream", onchange });
+    expect(slider).toHaveAttribute("aria-valuenow", "77");
+  });
 });

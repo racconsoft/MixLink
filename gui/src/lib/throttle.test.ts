@@ -25,4 +25,14 @@ describe("throttle", () => {
     vi.advanceTimersByTime(100);
     expect(seen).toEqual([1, 9]);
   });
+
+  it("cancel drops the pending value and clears the timer", () => {
+    const seen: number[] = [];
+    const th = throttle((v: number) => seen.push(v), 33);
+    th.push(1);
+    th.push(2);
+    th.cancel();
+    vi.advanceTimersByTime(100);
+    expect(seen).toEqual([1]);
+  });
 });

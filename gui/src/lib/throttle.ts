@@ -1,5 +1,5 @@
 /** Calls `fn` at most once per `ms`, always with the latest value; `flush` sends a pending value now. */
-export function throttle<T>(fn: (v: T) => void, ms: number): { push(v: T): void; flush(): void } {
+export function throttle<T>(fn: (v: T) => void, ms: number): { push(v: T): void; flush(): void; cancel(): void } {
   let last = -Infinity;
   let pending: { v: T } | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -25,6 +25,11 @@ export function throttle<T>(fn: (v: T) => void, ms: number): { push(v: T): void;
     flush() {
       if (timer) clearTimeout(timer);
       fire();
+    },
+    cancel() {
+      if (timer) clearTimeout(timer);
+      timer = null;
+      pending = null;
     },
   };
 }
