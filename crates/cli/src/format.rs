@@ -48,11 +48,11 @@ pub fn parse_mix_level(input: &str) -> Result<MixLevelArg, String> {
 fn stream_target(mix: &Mix) -> String {
     match mix.output_device.as_deref() {
         Some(device) => format!("MixLink Stream Mix (OBS) + {device}"),
-        None => "MixLink Stream Mix (OBS only)".to_string(),
+        None => "MixLink Stream Mix (OBS) only".to_string(),
     }
 }
 
-/// `Monitor mix: 80 → alsa_output.x` / `Stream mix: 60 (muted) → MixLink Stream Mix (OBS only)`
+/// `Monitor mix: 80 → alsa_output.x` / `Stream mix: 60 (muted) → MixLink Stream Mix (OBS) only`
 pub fn format_mix(kind: MixKind, mix: &Mix) -> String {
     let (label, output) = match kind {
         MixKind::Monitor => (
@@ -232,7 +232,7 @@ mod tests {
         assert!(text.contains("Spotify → Music"));
         assert!(text.contains("Listening to: monitor"));
         assert!(
-            text.contains("MixLink Stream Mix (OBS only)"),
+            text.contains("MixLink Stream Mix (OBS) only"),
             "no stream output device is configured:\n{text}"
         );
     }
@@ -276,7 +276,7 @@ mod tests {
         };
         assert_eq!(
             format_mix(MixKind::Stream, &stream),
-            "Stream mix: 60 (muted) → MixLink Stream Mix (OBS only)"
+            "Stream mix: 60 (muted) → MixLink Stream Mix (OBS) only"
         );
         let stream_with_device = Mix {
             volume: 60,
