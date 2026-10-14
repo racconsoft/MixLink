@@ -1,3 +1,4 @@
+import "./styles/breeze.css";
 import { mount } from "svelte";
 import App from "./App.svelte";
 

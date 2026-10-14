@@ -1,0 +1,45 @@
+:root {
+  --bg: #1b1e20;
+  --surface: #232629;
+  --border: #31363b;
+  --input: #31363b;
+  --text: #fcfcfc;
+  --text-dim: #bdc3c7;
+  --hint: #7f8c8d;
+  --accent: #3daee9;
+  --danger: #da4453;
+  --ok: #27ae60;
+  --radius: 4px;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+  font-family: "Noto Sans", system-ui, sans-serif; font-size: 12px; user-select: none; overflow: hidden; }
+#app { height: 100%; }
+button { font: inherit; color: inherit; }
+.surface { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+.btn { background: var(--input); border: 1px solid var(--border); border-radius: var(--radius); padding: 5px 12px; cursor: pointer; }
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn:disabled { opacity: 0.45; cursor: default; }
+.icon-btn { background: none; border: none; padding: 3px; border-radius: var(--radius); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; color: var(--text-dim); }
+.icon-btn:hover { background: var(--input); color: var(--text); }
+.icon-btn.active { color: var(--accent); }
+.icon-btn.muted { color: var(--danger); }
+.popover { position: absolute; z-index: 20; background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45); padding: 4px 0; min-width: 160px; }
+.popover button.item { display: flex; width: 100%; gap: 8px; align-items: center; background: none; border: none;
+  padding: 6px 12px; text-align: left; cursor: pointer; }
+.popover button.item:hover:not(:disabled) { background: var(--input); }
+.popover button.item:disabled { opacity: 0.45; cursor: default; }
+.dialog-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.55); display: flex;
+  align-items: center; justify-content: center; z-index: 30; }
+.dialog { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 16px; min-width: 320px; display: flex; flex-direction: column; gap: 12px; }
+.dialog h2 { margin: 0; font-size: 14px; font-weight: 600; }
+input[type="text"], select { background: var(--input); border: 1px solid var(--border); border-radius: var(--radius);
+  color: var(--text); padding: 5px 8px; font: inherit; }
+input[type="text"]:focus, select:focus { outline: 1px solid var(--accent); }
+::-webkit-scrollbar { height: 8px; width: 8px; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
