@@ -14,6 +14,8 @@ serde_json = "1"
 thiserror = "2"
 tracing = "0.1"
 toml = "1"
+tokio = { version = "1", features = ["rt", "macros", "net", "io-util", "sync", "time", "signal"] }
 
 [dev-dependencies]
 tempfile = "3"
+tokio = { version = "1", features = ["rt", "macros", "net", "io-util", "sync", "time", "signal", "test-util"] }
