@@ -5,4 +5,5 @@ pub mod backend;
 pub mod config;
 pub mod ipc;
 pub mod mixer;
+pub mod pw;
 pub mod targets;
