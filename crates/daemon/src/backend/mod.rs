@@ -31,9 +31,10 @@ pub enum BackendCommand {
     /// `node.name` to configure as default sink; `None` clears the setting.
     SetDefaultSink(Option<String>),
     /// Move a stream to the node named `target` (deferred until it exists).
+    /// `None` clears the stream's `target.object`, so it follows the default sink again.
     MoveStream {
         node_id: u32,
-        target: String,
+        target: Option<String>,
     },
     Shutdown,
 }

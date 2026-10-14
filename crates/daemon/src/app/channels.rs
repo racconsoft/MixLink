@@ -14,9 +14,9 @@ impl<B: AudioBackend> App<B> {
             return Err(ErrorBody::invalid("app name must not be empty"));
         }
         let app = self.app_identity_for(app)?;
-        let id = self.resolve_channel(channel)?;
+        let id = self.resolve_virtual_channel(channel)?;
         rules::assign_app(&mut self.state.config.channels, &app, &id);
-        self.move_app_streams(&app, &channel_node_name(&id));
+        self.move_app_streams(&app, Some(&id));
         self.changed();
         Ok(to_value(
             self.state
@@ -36,7 +36,7 @@ impl<B: AudioBackend> App<B> {
             .map_err(ErrorBody::from)?
             .to_owned();
         rules::unassign_app(&mut self.state.config.channels, &app);
-        self.move_app_streams(&app, &self.fallback_node());
+        self.move_app_streams(&app, None);
         self.changed();
         Ok(json!({ "app": app, "channel": self.state.config.fallback_channel }))
     }
@@ -47,10 +47,7 @@ impl<B: AudioBackend> App<B> {
         icon: Option<String>,
         color: Option<String>,
     ) -> CmdResult {
-        let name = name.trim();
-        if name.is_empty() {
-            return Err(ErrorBody::invalid("channel name must not be empty"));
-        }
+        let name = validate_channel_name(name)?;
         let Some(slot) = self.free_slot() else {
             return Err(ErrorBody::new(
                 ErrorCode::LimitReached,
@@ -87,10 +84,7 @@ impl<B: AudioBackend> App<B> {
     }
 
     pub(super) fn rename_channel(&mut self, channel: &str, name: &str) -> CmdResult {
-        let name = name.trim();
-        if name.is_empty() {
-            return Err(ErrorBody::invalid("channel name must not be empty"));
-        }
+        let name = validate_channel_name(name)?;
         let id = self.resolve_channel(channel)?;
         self.state
             .config
@@ -101,7 +95,9 @@ impl<B: AudioBackend> App<B> {
         if let Some(cmd) = self.ensure_channel_cmd(&id) {
             self.backend.send(cmd);
         }
-        let node = channel_node_name(&id);
+        // Streams on the fallback channel go back to following the default sink, so
+        // they are not pinned to it.
+        let target = (id != self.state.config.fallback_channel).then(|| channel_node_name(&id));
         for app in self
             .state
             .apps
@@ -110,7 +106,7 @@ impl<B: AudioBackend> App<B> {
         {
             self.backend.send(BackendCommand::MoveStream {
                 node_id: app.node_id,
-                target: node.clone(),
+                target: target.clone(),
             });
         }
         self.changed();
@@ -169,12 +165,12 @@ impl<B: AudioBackend> App<B> {
         }
         self.backend
             .send(BackendCommand::RemoveChannel { id: id.clone() });
-        let fallback = self.fallback_node();
         for app in &self.state.apps {
             if app.channel.as_deref() == Some(id.as_str()) || removed.apps.contains(&app.app) {
+                // Back to the default sink, i.e. the fallback channel, without pinning.
                 self.backend.send(BackendCommand::MoveStream {
                     node_id: app.node_id,
-                    target: fallback.clone(),
+                    target: None,
                 });
             }
         }
@@ -214,36 +210,64 @@ impl<B: AudioBackend> App<B> {
         Ok(json!(resolved))
     }
 
-    /// Maps a user-supplied app name to a running app's identity when possible,
-    /// otherwise to the normalized name (so apps can be assigned before they run).
-    /// An ambiguous query among running apps is reported as an error rather than
-    /// silently falling back, since that would assign the wrong app.
+    /// Maps a user-supplied app name to a running app's identity when it matches that
+    /// identity or the app's display name exactly (ignoring case); otherwise to the
+    /// normalized name, so apps can be assigned before they run. No fuzzy matching:
+    /// an assignment rule is persistent, and a guessed app would be a surprise.
+    /// Two different running apps sharing the queried display name are ambiguous.
     fn app_identity_for(&self, query: &str) -> Result<String, ErrorBody> {
-        let mut seen = std::collections::HashSet::new();
-        let candidates: Vec<Candidate> = self
+        let normalized = rules::normalize_app(query);
+        if self
             .state
             .apps
             .iter()
-            .filter(|a| seen.insert(a.app.as_str()))
-            .map(|a| Candidate {
-                id: &a.app,
-                name: &a.name,
-            })
+            .any(|a| a.app.to_lowercase() == normalized)
+        {
+            return Ok(normalized);
+        }
+        let mut matches: Vec<&str> = self
+            .state
+            .apps
+            .iter()
+            .filter(|a| a.name.trim().to_lowercase() == normalized)
+            .map(|a| a.app.as_str())
             .collect();
-        match resolve(query, &candidates) {
-            Ok(id) => Ok(id.to_owned()),
-            Err(ResolveError::NotFound { .. }) => Ok(rules::normalize_app(query)),
-            Err(e @ ResolveError::Ambiguous { .. }) => Err(ErrorBody::from(e)),
+        matches.sort_unstable();
+        matches.dedup();
+        match matches.as_slice() {
+            [] => Ok(normalized),
+            [app] => Ok((*app).to_owned()),
+            _ => Err(ErrorBody::from(ResolveError::Ambiguous {
+                query: query.to_owned(),
+                options: matches.iter().map(|a| (*a).to_owned()).collect(),
+            })),
         }
     }
 }
 
+/// Trims a channel name and rejects empty names and control characters (PipeWire
+/// properties cannot carry e.g. NUL).
+fn validate_channel_name(name: &str) -> Result<&str, ErrorBody> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(ErrorBody::invalid("channel name must not be empty"));
+    }
+    if name.chars().any(char::is_control) {
+        return Err(ErrorBody::invalid(
+            "channel name must not contain control characters",
+        ));
+    }
+    Ok(name)
+}
+
 #[cfg(test)]
 mod tests {
+    use super::super::App;
     use super::super::test_support::*;
-    use wavelink_core::model::MAX_CHANNELS;
+    use wavelink_core::model::{Channel, ChannelKind, MAX_CHANNELS};
     use wavelink_core::protocol::{Command, ErrorCode};
 
+    use crate::backend::fake::FakeBackend;
     use crate::backend::{BackendCommand, BackendEvent, ChannelSource};
 
     fn create(name: &str) -> Command {
@@ -305,8 +329,28 @@ mod tests {
             description: "WaveLink Tunes".into(),
             source: ChannelSource::Virtual,
         }));
-        assert_eq!(moves(&cmds), vec![(40, "wavelink.channel.music".into())]);
+        assert_eq!(
+            moves(&cmds),
+            vec![(40, Some("wavelink.channel.music".into()))]
+        );
         assert_eq!(app.state().config.channel("music").unwrap().name, "Tunes");
+    }
+
+    #[test]
+    fn renaming_the_fallback_channel_unpins_its_streams() {
+        let (mut app, fake) = ready_app();
+        app.on_backend_event(BackendEvent::StreamUpdated(stream(
+            41,
+            "firefox",
+            Some("wavelink.channel.system"),
+        )));
+        fake.take();
+        app.handle(Command::RenameChannel {
+            channel: "system".into(),
+            name: "Everything".into(),
+        })
+        .unwrap();
+        assert_eq!(moves(&fake.take()), vec![(41, None)]);
     }
 
     #[test]
@@ -355,7 +399,7 @@ mod tests {
         .unwrap();
         let cmds = fake.take();
         assert!(cmds.contains(&BackendCommand::RemoveChannel { id: "music".into() }));
-        assert_eq!(moves(&cmds), vec![(40, "wavelink.channel.system".into())]);
+        assert_eq!(moves(&cmds), vec![(40, None)], "back to the default sink");
         assert!(app.state().config.channel("music").is_none());
         app.handle(create("New")).unwrap();
         assert!(
@@ -406,7 +450,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             moves(&fake.take()),
-            vec![(50, "wavelink.channel.voice-chat".into())]
+            vec![(50, Some("wavelink.channel.voice-chat".into()))]
         );
         assert_eq!(
             app.state().config.channel("voice-chat").unwrap().apps,
@@ -429,7 +473,7 @@ mod tests {
     }
 
     #[test]
-    fn assign_rejects_ambiguous_running_app_names() {
+    fn assign_does_not_guess_running_apps() {
         let (mut app, fake) = ready_app();
         let mut discord = stream(50, "discord", Some("wavelink.channel.system"));
         discord.name = "Discord".into();
@@ -438,25 +482,147 @@ mod tests {
         app.on_backend_event(BackendEvent::StreamUpdated(discord));
         app.on_backend_event(BackendEvent::StreamUpdated(discordance));
         fake.take();
+        app.handle(Command::AssignApp {
+            app: "disc".into(),
+            channel: "voice".into(),
+        })
+        .unwrap();
+        assert_eq!(
+            app.state().config.channel("voice-chat").unwrap().apps,
+            vec!["disc"],
+            "a prefix is taken literally"
+        );
+        assert!(moves(&fake.take()).is_empty());
+        app.handle(Command::AssignApp {
+            app: "DISCORDANCE".into(),
+            channel: "voice".into(),
+        })
+        .unwrap();
+        assert_eq!(
+            moves(&fake.take()),
+            vec![(51, Some("wavelink.channel.voice-chat".into()))]
+        );
+    }
+
+    #[test]
+    fn assign_rejects_display_names_shared_by_different_apps() {
+        let (mut app, fake) = ready_app();
+        let mut a = stream(50, "game-a", Some("wavelink.channel.system"));
+        a.name = "Game".into();
+        let mut b = stream(51, "game-b", Some("wavelink.channel.system"));
+        b.name = "Game".into();
+        app.on_backend_event(BackendEvent::StreamUpdated(a));
+        app.on_backend_event(BackendEvent::StreamUpdated(b));
+        fake.take();
         let err = app
             .handle(Command::AssignApp {
-                app: "disc".into(),
-                channel: "voice".into(),
+                app: "game".into(),
+                channel: "music".into(),
             })
             .unwrap_err();
         assert_eq!(err.code, ErrorCode::Ambiguous);
-        assert_eq!(err.options, vec!["Discord", "Discordance"]);
+        assert_eq!(err.options, vec!["game-a", "game-b"]);
         assert!(
             fake.take().is_empty(),
-            "no streams should be moved on an ambiguous assign"
+            "nothing moved on an ambiguous assign"
         );
-        assert!(
-            app.state()
-                .config
-                .channels
-                .iter()
-                .all(|c| c.apps.iter().all(|a| !a.starts_with("disc")))
+        assert_eq!(
+            app.state().config.channel("music").unwrap().apps,
+            vec!["spotify"]
         );
+    }
+
+    #[test]
+    fn assign_to_the_current_channel_does_not_move_the_stream() {
+        let (mut app, fake) = ready_app();
+        app.on_backend_event(BackendEvent::StreamUpdated(stream(
+            40,
+            "spotify",
+            Some("wavelink.channel.music"),
+        )));
+        app.on_backend_event(BackendEvent::StreamUpdated(stream(
+            41,
+            "spotify",
+            Some("wavelink.channel.system"),
+        )));
+        fake.take();
+        app.handle(Command::AssignApp {
+            app: "spotify".into(),
+            channel: "music".into(),
+        })
+        .unwrap();
+        assert_eq!(
+            moves(&fake.take()),
+            vec![(41, Some("wavelink.channel.music".into()))],
+            "only the stream not yet in Music is moved"
+        );
+    }
+
+    fn mic_app() -> (App<FakeBackend>, FakeBackend) {
+        let (mut app, fake) = ready_app();
+        let mut mic = Channel::new("mic", "Wave XLR");
+        mic.kind = ChannelKind::Input;
+        mic.source = Some("alsa_input.xlr".into());
+        app.state.config.channels.push(mic);
+        (app, fake)
+    }
+
+    #[test]
+    fn input_channels_cannot_take_apps() {
+        let (mut app, fake) = mic_app();
+        app.on_backend_event(BackendEvent::StreamUpdated(stream(
+            40,
+            "firefox",
+            Some("wavelink.channel.system"),
+        )));
+        fake.take();
+        let err = app
+            .handle(Command::AssignApp {
+                app: "firefox".into(),
+                channel: "mic".into(),
+            })
+            .unwrap_err();
+        assert_eq!(err.code, ErrorCode::InvalidArgument);
+        assert!(err.message.contains("input channel"), "{}", err.message);
+        assert!(app.state().config.channel("mic").unwrap().apps.is_empty());
+        assert!(fake.take().is_empty());
+    }
+
+    #[test]
+    fn input_channel_cannot_be_the_fallback() {
+        let (mut app, fake) = mic_app();
+        let err = app
+            .handle(Command::SetFallbackChannel {
+                channel: "wave xlr".into(),
+            })
+            .unwrap_err();
+        assert_eq!(err.code, ErrorCode::InvalidArgument);
+        assert!(err.message.contains("input channel"), "{}", err.message);
+        assert_eq!(app.state().config.fallback_channel, "system");
+        assert!(fake.take().is_empty());
+    }
+
+    #[test]
+    fn channel_names_with_control_characters_are_rejected() {
+        let (mut app, fake) = ready_app();
+        for name in ["Bad\0Name", "Tab\tName", "Line\nBreak"] {
+            assert_eq!(
+                app.handle(create(name)).unwrap_err().code,
+                ErrorCode::InvalidArgument
+            );
+            assert_eq!(
+                app.handle(Command::RenameChannel {
+                    channel: "music".into(),
+                    name: name.into(),
+                })
+                .unwrap_err()
+                .code,
+                ErrorCode::InvalidArgument
+            );
+        }
+        assert_eq!(app.state().config.channels.len(), 3);
+        assert_eq!(app.state().config.channel("music").unwrap().name, "Music");
+        assert!(fake.take().is_empty());
     }
 
     #[test]
@@ -475,10 +641,7 @@ mod tests {
         assert_eq!(err.options, vec!["spotify"]);
         app.handle(Command::UnassignApp { app: "spot".into() })
             .unwrap();
-        assert_eq!(
-            moves(&fake.take()),
-            vec![(40, "wavelink.channel.system".into())]
-        );
+        assert_eq!(moves(&fake.take()), vec![(40, None)]);
         assert!(app.state().config.channel("music").unwrap().apps.is_empty());
     }
 }

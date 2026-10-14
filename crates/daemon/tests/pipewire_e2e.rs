@@ -130,11 +130,11 @@ async fn routes_moves_and_mixes_through_real_pipewire() {
     // when channel c appears later, the stale deferred move must not fire.
     backend.send(BackendCommand::MoveStream {
         node_id: stream.node_id,
-        target: "wavelink.channel.e2e-c".into(),
+        target: Some("wavelink.channel.e2e-c".into()),
     });
     backend.send(BackendCommand::MoveStream {
         node_id: stream.node_id,
-        target: "wavelink.channel.e2e-a".into(),
+        target: Some("wavelink.channel.e2e-a".into()),
     });
     wait_for(&mut rx, "move to channel a", |e| {
         matches!(e, BackendEvent::StreamUpdated(s) if s.node_id == stream.node_id && s.target.as_deref() == Some("wavelink.channel.e2e-a"))

@@ -146,6 +146,8 @@ impl<B: AudioBackend> App<B> {
                     }
                 }
                 self.resync();
+                // First-run magic only applies to the devices present at startup.
+                self.first_run = false;
                 None
             }
             BackendEvent::StreamUpdated(info) => {
@@ -235,7 +237,7 @@ impl<B: AudioBackend> App<B> {
         {
             self.backend.send(BackendCommand::MoveStream {
                 node_id: info.node_id,
-                target: target.node_name(),
+                target: Some(target.node_name()),
             });
         }
     }
@@ -322,7 +324,7 @@ impl<B: AudioBackend> App<B> {
             {
                 self.backend.send(BackendCommand::MoveStream {
                     node_id: app.node_id,
-                    target: target.node_name(),
+                    target: Some(target.node_name()),
                 });
             }
         }
@@ -344,6 +346,19 @@ impl<B: AudioBackend> App<B> {
         resolve(query, &candidates)
             .map(str::to_owned)
             .map_err(ErrorBody::from)
+    }
+
+    /// Like `resolve_channel`, but rejects input (mic) channels: apps can only play
+    /// into virtual channels.
+    fn resolve_virtual_channel(&self, query: &str) -> Result<ChannelId, ErrorBody> {
+        let id = self.resolve_channel(query)?;
+        match self.state.config.channel(&id) {
+            Some(c) if c.kind == ChannelKind::Input => Err(ErrorBody::invalid(format!(
+                "'{}' is an input channel; apps can only play into virtual channels",
+                c.name
+            ))),
+            _ => Ok(id),
+        }
     }
 
     fn slot_of(&self, id: &str) -> Option<usize> {
@@ -389,11 +404,17 @@ impl<B: AudioBackend> App<B> {
         channel_node_name(&self.state.config.fallback_channel)
     }
 
-    fn move_app_streams(&self, app: &str, target: &str) {
+    /// Moves every running stream of `app` into `channel`, or back to the default
+    /// sink (the fallback channel) for `None`. Streams already playing into `channel`
+    /// are left alone: re-targeting them would only cause a dropout.
+    fn move_app_streams(&self, app: &str, channel: Option<&str>) {
         for active in self.state.apps.iter().filter(|a| a.app == app) {
+            if channel.is_some() && active.channel.as_deref() == channel {
+                continue;
+            }
             self.backend.send(BackendCommand::MoveStream {
                 node_id: active.node_id,
-                target: target.to_owned(),
+                target: channel.map(channel_node_name),
             });
         }
     }
@@ -481,7 +502,7 @@ mod tests {
         )));
         assert_eq!(
             moves(&fake.take()),
-            vec![(40, "wavelink.channel.music".into())]
+            vec![(40, Some("wavelink.channel.music".into()))]
         );
         app.on_backend_event(BackendEvent::StreamUpdated(stream(
             40,
@@ -553,27 +574,82 @@ mod tests {
         assert_eq!(app.state().config.channels.len(), 4, "only one mic channel");
     }
 
+    const XLR_SINK: &str =
+        "alsa_output.usb-Elgato_Systems_Elgato_Wave_XLR_0000000000-00.analog-stereo";
+    const XLR_SOURCE: &str =
+        "alsa_input.usb-Elgato_Systems_Elgato_Wave_XLR_0000000000-00.mono-fallback";
+
     #[test]
     fn first_run_prefers_wave_xlr_headphones_for_monitor() {
         let fake = FakeBackend::new();
         let mut app = App::new(config(), fake.clone(), true);
-        app.on_backend_event(BackendEvent::Ready {
-            previous_default_sink: Some("alsa_output.speakers".into()),
-        });
-        let xlr = "alsa_output.usb-Elgato_Systems_Elgato_Wave_XLR_0000000000-00.analog-stereo";
+        // Devices are reported before Ready.
         app.on_backend_event(BackendEvent::DeviceAdded(device(
-            xlr,
+            XLR_SINK,
             "Wave XLR",
             DeviceKind::Sink,
         )));
+        assert!(
+            fake.take()
+                .contains(&BackendCommand::SetMonitorOutput(Some(XLR_SINK.into())))
+        );
+        app.on_backend_event(BackendEvent::Ready {
+            previous_default_sink: Some("alsa_output.speakers".into()),
+        });
         assert_eq!(
             app.state().config.mixes.monitor.output_device.as_deref(),
-            Some(xlr)
+            Some(XLR_SINK)
         );
+        assert!(
+            fake.take()
+                .contains(&BackendCommand::SetMonitorOutput(Some(XLR_SINK.into())))
+        );
+    }
+
+    #[test]
+    fn first_run_magic_ends_with_the_first_ready() {
+        let fake = FakeBackend::new();
+        let mut c = config();
+        c.channels.retain(|ch| ch.kind != ChannelKind::Input);
+        let mut app = App::new(c, fake.clone(), true);
+        let xlr = device(XLR_SINK, "Wave XLR", DeviceKind::Sink);
+        app.on_backend_event(BackendEvent::DeviceAdded(xlr.clone()));
+        app.on_backend_event(BackendEvent::DeviceAdded(device(
+            "alsa_output.speakers",
+            "Speakers",
+            DeviceKind::Sink,
+        )));
+        app.on_backend_event(BackendEvent::Ready {
+            previous_default_sink: Some("alsa_output.speakers".into()),
+        });
+        app.handle(Command::SetMix {
+            mix: wavelink_core::model::MixKind::Monitor,
+            volume: None,
+            delta: None,
+            muted: None,
+            output_device: Some("speakers".into()),
+        })
+        .unwrap();
+        fake.take();
+
+        // The XLR is replugged: the user's choice stays.
+        app.on_backend_event(BackendEvent::DeviceRemoved(XLR_SINK.into()));
+        app.on_backend_event(BackendEvent::DeviceAdded(xlr));
         assert_eq!(
-            fake.take().last(),
-            Some(&BackendCommand::SetMonitorOutput(Some(xlr.into())))
+            app.state().config.mixes.monitor.output_device.as_deref(),
+            Some("alsa_output.speakers")
         );
+        // A Wave XLR mic showing up later does not create a mic channel either.
+        app.on_backend_event(BackendEvent::DeviceAdded(device(
+            XLR_SOURCE,
+            "Wave XLR",
+            DeviceKind::Source,
+        )));
+        assert_eq!(app.state().config.channels.len(), 3);
+        assert!(!fake.take().iter().any(|c| matches!(
+            c,
+            BackendCommand::SetMonitorOutput(_) | BackendCommand::EnsureChannel { .. }
+        )));
     }
 
     #[test]

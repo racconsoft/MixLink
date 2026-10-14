@@ -444,15 +444,16 @@ impl Session {
                 self.reconcile();
             }
             BackendCommand::SetDefaultSink(name) => self.set_default_sink(name.as_deref()),
-            BackendCommand::MoveStream { node_id, target } => {
-                if self.graph.node_by_name(&target).is_some() {
-                    // An older deferred move must not override this one later.
-                    self.pending_moves.remove(&node_id);
-                    self.apply_move(node_id, &target);
-                } else {
+            BackendCommand::MoveStream { node_id, target } => match target {
+                Some(target) if self.graph.node_by_name(&target).is_none() => {
                     self.pending_moves.insert(node_id, target);
                 }
-            }
+                target => {
+                    // An older deferred move must not override this one later.
+                    self.pending_moves.remove(&node_id);
+                    self.apply_move(node_id, target.as_deref());
+                }
+            },
             BackendCommand::Shutdown => match self.core.sync(0) {
                 Ok(seq) => self.shutdown_seq = Some(seq),
                 Err(_) => {
@@ -536,8 +537,14 @@ impl Session {
         );
     }
 
-    fn apply_move(&mut self, node_id: u32, target: &str) {
+    /// Sets (or, for `None`, clears) the stream's `target.object`.
+    fn apply_move(&mut self, node_id: u32, target: Option<&str>) {
         let Some(metadata) = &self.metadata else {
+            return;
+        };
+        let Some(target) = target else {
+            metadata.set_property(node_id, "target.object", None, None);
+            self.last_moves.remove(&node_id);
             return;
         };
         if self.last_moves.get(&node_id).map(String::as_str) == Some(target) {
@@ -558,7 +565,7 @@ impl Session {
             .collect();
         for node_id in ready {
             if let Some(target) = self.pending_moves.remove(&node_id) {
-                self.apply_move(node_id, &target);
+                self.apply_move(node_id, Some(&target));
             }
         }
     }

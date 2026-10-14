@@ -172,7 +172,7 @@ impl<B: AudioBackend> App<B> {
     }
 
     pub(super) fn set_fallback_channel(&mut self, channel: &str) -> CmdResult {
-        let id = self.resolve_channel(channel)?;
+        let id = self.resolve_virtual_channel(channel)?;
         self.state.config.fallback_channel = id.clone();
         self.backend
             .send(BackendCommand::SetDefaultSink(Some(self.fallback_node())));

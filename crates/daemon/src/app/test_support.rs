@@ -71,7 +71,8 @@ pub fn last_targets(cmds: &[BackendCommand]) -> Targets {
         .expect("no SetTargets sent")
 }
 
-pub fn moves(cmds: &[BackendCommand]) -> Vec<(u32, String)> {
+/// `(node_id, target)` of every MoveStream; `None` means "follow the default sink".
+pub fn moves(cmds: &[BackendCommand]) -> Vec<(u32, Option<String>)> {
     cmds.iter()
         .filter_map(|c| match c {
             BackendCommand::MoveStream { node_id, target } => Some((*node_id, target.clone())),
