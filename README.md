@@ -82,6 +82,7 @@ Best-effort package names (check your distro's exact names if a build fails):
 | X11 instead of Wayland | Expected to work (GTK/WebKitGTK support both); not yet tested |
 | Ubuntu 24.04 / Linux Mint 22 (PipeWire 1.0, WirePlumber 0.4) | Expected to work; WirePlumber 0.4 is untested — feedback welcome |
 | Linux Mint 21 and other PulseAudio-based systems | Not supported until switched to PipeWire |
+| NVIDIA proprietary driver on Wayland | Tested; WebKit's DMABUF renderer is disabled automatically (see [Troubleshooting](#troubleshooting)) |
 | Non-systemd distros | Daemon must be started manually (`mixlinkd`) |
 
 Tray icon support depends on the desktop, not the display server. MixLink uses the
@@ -233,8 +234,17 @@ apps = ["discord", "slack"]
 - **GUI shows "MixLink service is not running"** — `mixlinkd` isn't running; click
   "Start service" or run `systemctl --user start mixlinkd`. Check
   `journalctl --user -u mixlinkd -e` for why it failed.
-- **Blank/empty GUI window** — a WebKitGTK/GPU driver issue; run
-  `WEBKIT_DISABLE_DMABUF_RENDERER=1 mixlink-gui`.
+- **GUI exits right after starting, or the window stays empty** — WebKitGTK's DMABUF
+  renderer is broken on the NVIDIA proprietary driver: on a compositor that uses
+  explicit sync (KWin, for one) it commits a frame without setting an acquire point,
+  the compositor rejects it, and GDK turns that into
+  `Error 71 (Protocol error) dispatching to Wayland display` and exits. It can strike
+  seconds *after* a window has already rendered, and a GUI started from the
+  application menu or from autostart dies without showing anything — look in
+  `journalctl --user -e` for the protocol error. MixLink detects the NVIDIA driver and
+  turns that renderer off by itself, so this should no longer happen; to override the
+  choice in either direction, set `WEBKIT_DISABLE_DMABUF_RENDERER` explicitly (`1`
+  disables the renderer, `0` forces it on).
 - **No tray icon** — the tray needs a `StatusNotifierItem` host (see
   [Compatibility](#compatibility)). On desktops without one (e.g. plain GNOME), the
   window just closes instead of hiding to the tray.

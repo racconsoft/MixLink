@@ -23,6 +23,22 @@ fn is_build_tree(exe: &Path) -> bool {
     exe.components().any(|c| c.as_os_str() == "target")
 }
 
+/// WebKitGTK's DMABUF renderer violates the `linux-drm-syncobj-v1` protocol on the NVIDIA
+/// proprietary driver: it commits a buffer without ever setting an acquire point, the compositor
+/// rejects that ("explicit sync is used, but no acquire point is set") and GDK turns the protocol
+/// error into a hard exit before the window is ever mapped. The non-DMABUF renderer gives up some
+/// acceleration in the webview, but it is the difference between a working GUI and none. An
+/// explicit value in the environment always wins, so the default can be overridden either way.
+fn disable_dmabuf_on_nvidia() {
+    if Path::new("/sys/module/nvidia_drm").exists()
+        && std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none()
+    {
+        // SAFETY: called at the top of main(), before any thread or the webview is spawned.
+        unsafe { std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1") };
+        tracing::info!("nvidia driver detected: disabled WebKit's DMABUF renderer");
+    }
+}
+
 fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -30,6 +46,7 @@ fn main() {
         )
         .with_writer(std::io::stderr)
         .init();
+    disable_dmabuf_on_nvidia();
     let hidden = std::env::args().any(|a| a == "--hidden");
     let tray_state = Arc::new(TrayState::new());
     let close_state = tray_state.clone();
