@@ -3,6 +3,7 @@ name = "mixlinkd"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+rust-version.workspace = true
 repository.workspace = true
 homepage.workspace = true
 description = "MixLink daemon: a Wave Link-style audio mixer for Linux/PipeWire"

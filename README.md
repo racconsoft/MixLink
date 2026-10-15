@@ -48,22 +48,69 @@ daemon; either one can be closed without affecting your audio.
 
 ## Requirements
 
-- PipeWire ≥ 1.0 with WirePlumber. Tested on PipeWire 1.6.9 / WirePlumber 0.5.18 /
-  KDE Plasma 6 (Wayland); other PipeWire-based desktops should work but are untested.
-- To build from source:
-  - Rust ≥ 1.85 (edition 2024) and `cargo`
-  - `clang` (for the PipeWire FFI bindings)
-  - PipeWire development headers
-  - WebKitGTK 4.1 and GTK 3 development packages (Tauri's Linux webview)
-  - Node.js and `pnpm` (to build the GUI frontend)
+At runtime:
+
+- **PipeWire ≥ 1.0 as the sound server, with WirePlumber.** Systems still running
+  PulseAudio as their sound server are not supported (switch to PipeWire first).
+- **systemd** (the daemon runs as a systemd user service).
+- Any display server: the daemon and CLI don't use one at all, and the GUI
+  (GTK 3 / WebKitGTK) runs on both **X11 and Wayland**.
+
+To build from source:
+
+- **Rust ≥ 1.90** and `cargo` — distro packages are often older; install via
+  [rustup](https://rustup.rs) if `rustc --version` is lower.
+- **Node.js ≥ 20.19** (or ≥ 22.12) and `pnpm` — needed only to build the GUI
+  frontend. Install a current Node via [nvm](https://github.com/nvm-sh/nvm) if your
+  distro's is older; `corepack enable` then provides `pnpm`.
+- `clang` (for the PipeWire FFI bindings), the PipeWire development headers, and the
+  WebKitGTK 4.1 + GTK 3 development packages (Tauri's Linux webview).
 
 Best-effort package names (check your distro's exact names if a build fails):
 
 | Distro | Packages |
 |---|---|
 | Arch Linux | `base-devel clang pipewire webkit2gtk-4.1 gtk3` |
-| Debian/Ubuntu | `build-essential clang libpipewire-0.3-dev libwebkit2gtk-4.1-dev libgtk-3-dev` |
+| Debian/Ubuntu/Linux Mint | `build-essential clang libpipewire-0.3-dev libwebkit2gtk-4.1-dev libgtk-3-dev` |
 | Fedora | `@development-tools clang pipewire-devel webkit2gtk4.1-devel gtk3-devel` |
+
+### Compatibility
+
+| | Status |
+|---|---|
+| KDE Plasma 6, Wayland, PipeWire 1.6 / WirePlumber 0.5 | Tested (development system: CachyOS) |
+| X11 instead of Wayland | Expected to work (GTK/WebKitGTK support both); not yet tested |
+| Ubuntu 24.04 / Linux Mint 22 (PipeWire 1.0, WirePlumber 0.4) | Expected to work; WirePlumber 0.4 is untested — feedback welcome |
+| Linux Mint 21 and other PulseAudio-based systems | Not supported until switched to PipeWire |
+| Non-systemd distros | Daemon must be started manually (`mixlinkd`) |
+
+Tray icon support depends on the desktop, not the display server. MixLink uses the
+`StatusNotifierItem` standard:
+
+| Desktop | Tray icon |
+|---|---|
+| KDE Plasma | Built in (tested) |
+| Cinnamon (Linux Mint) | Via XApp's StatusNotifier support, enabled by default on Mint |
+| Xfce | With the "Status Notifier Plugin" in the panel |
+| GNOME | Needs the "AppIndicator and KStatusNotifierItem Support" extension (preinstalled on Ubuntu) |
+
+Without a tray host everything still works; closing the window then quits the GUI
+instead of hiding it (your audio keeps running in `mixlinkd`).
+
+### Building on Ubuntu 24.04 / Linux Mint 22
+
+The distro's Rust and Node.js are too old, so install current versions first:
+
+```bash
+sudo apt install build-essential clang curl libpipewire-0.3-dev libwebkit2gtk-4.1-dev libgtk-3-dev
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh   # Rust via rustup
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/master/install.sh | bash
+# open a new terminal, then:
+nvm install 22
+corepack enable                                                 # provides pnpm
+```
+
+Then continue with [Installation](#installation).
 
 ## Installation
 
@@ -188,9 +235,13 @@ apps = ["discord", "slack"]
   `journalctl --user -u mixlinkd -e` for why it failed.
 - **Blank/empty GUI window** — a WebKitGTK/GPU driver issue; run
   `WEBKIT_DISABLE_DMABUF_RENDERER=1 mixlink-gui`.
-- **No tray icon** — the tray needs a `StatusNotifierItem` host (KDE Plasma has one
-  built in). On desktops without one (e.g. plain GNOME), the window just closes
-  instead of hiding to the tray when the tray host isn't reachable.
+- **No tray icon** — the tray needs a `StatusNotifierItem` host (see
+  [Compatibility](#compatibility)). On desktops without one (e.g. plain GNOME), the
+  window just closes instead of hiding to the tray.
+- **Build fails with "package requires rustc 1.90 or newer"** — your Rust is too
+  old; install/update it with rustup (`rustup update`).
+- **`pnpm`/Vite complains about the Node.js version** — install Node ≥ 20.19 (e.g.
+  `nvm install 22`).
 - **Apps don't move to their assigned channel** — some apps (notably browsers) only
   expose one audio stream for all tabs/windows, so only the whole app can be moved,
   not individual tabs. Restarting the app after assigning it also helps.

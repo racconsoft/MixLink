@@ -3,6 +3,7 @@ name = "mixlink"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+rust-version.workspace = true
 repository.workspace = true
 homepage.workspace = true
 description = "Command-line client for the MixLink audio mixer daemon"

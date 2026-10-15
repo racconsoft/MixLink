@@ -3,6 +3,7 @@ name = "mixlink-gui"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+rust-version.workspace = true
 repository.workspace = true
 homepage.workspace = true
 description = "Tauri-based GUI for MixLink, a Wave Link-style audio mixer for Linux/PipeWire"
